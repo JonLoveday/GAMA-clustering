@@ -144,7 +144,7 @@ def xtest(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
             zlimits = util.vol_limits(infile, Q=Q, Mlims=(Mlimits[-1],))
         else:
             zlimits = util.vol_limits(infile, Q=Q, Mlims=Mlimits[1:3])
-        for ilim in xrange(1,2):
+        for ilim in xrange(2):
             if onevol:
                 z_range = [0.002, zlimits[0]]
             else:
@@ -1360,7 +1360,7 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
               z_range=(0.002, 0.65), nz=65, app_range=(14, 19.8),
               abs_range=(-99, 99), mass_range=(-99, 99), colour='c',
               Q=0, P=0, ran_dist='fit', ran_fac=10, weighting='unif',
-              set_vmax=False, ax=None, run=0):
+              set_vmax=False, ax=None, run=0, ranzfile='ranz.dat'):
     """
     Select GAMA galaxies from stellar masses catalogue for xi.c.
     Ignore fluxscale parameter for now as only ~half galaxies have valid value.
@@ -1466,10 +1466,10 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
             limits = mass_range
         jswml.ran_gen_sample(infile=infile,
                              evroot=gama_data+'jswml/auto/ev_fit_{}.dat',
-                             outfile=ranfile, param=param, limits=limits,
+                             outfile=ranzfile, param=param, limits=limits,
                              colour=colour, zmin=z_range[0], zmax=z_range[1],
                              nz=65, nfac=ran_fac)
-        data = np.loadtxt(ranfile, skiprows=1)
+        data = np.loadtxt(ranzfile, skiprows=1)
         zran = data[:, 0]
         # Select only reshifts within z_range
         idx = (z_range[0] <= zran) * (zran < z_range[1])
@@ -2260,7 +2260,7 @@ def xi_vol(infile=gama_data + 'jswml/auto/kcorrz01.fits', Mlims=(-25, -20),
     ranout = 'ran_vol.dat'
     xiout = 'xi_vol.dat'
 
-    xi_select(infile, ranfile=None, galout=galout, ranout=ranout, xiout=xiout,
+    xi_select(infile, None, galout, ranout, xiout,
               z_range=z_range, nz=65, abs_range=Mlims,
               ran_dist=ran_dist, ax=ax, run=run)
     plt.show()
@@ -2330,7 +2330,7 @@ def xi_samples(infile=gama_data+'jswml/auto/kcorrz01.fits', param='lum',
                 ranout = 'ran_{}_{}_{}_{}.dat'.format(label, colour, *limits)
                 xiout = 'xi_{}_{}_{}_{}.dat'.format(label, colour, *limits)
 
-            xi_select(infile, galout=galout, ranout=ranout, xiout=xiout,
+            xi_select(infile, None, galout, ranout, xiout,
                       param=param, z_range=z_range, nz=65,
                       app_range=app_range, abs_range=abs_range,
                       mass_range=mass_range, colour=colour,
@@ -2368,8 +2368,7 @@ def xi_farrow_comp(infile=gama_data+'jswml/auto/kcorrz00.fits',
         xiout = 'xi_f_M{}_{}_z{}_{}.dat'.format(abs_range[0], abs_range[1],
                                                   z_range[0], z_range[1])
 
-        xi_select(infile, ranfile=ranfile,
-                  galout=galout, ranout=ranout, xiout=xiout,
+        xi_select(infile, ranfile, galout, ranout, xiout,
                   z_range=z_range, nz=65,
                   app_range=app_range, abs_range=abs_range,
                   mass_range=mass_range, colour='c',
@@ -2391,11 +2390,11 @@ def xi_colour_samples(infile=gama_data+'/jswml/auto/kcorrz01.fits',
         ax = plt.subplot(nrow, ncol, iplot)
         galout = 'gal_colour_{}.dat'.format(colour)
         ranout = 'ran_colour_{}.dat'.format(colour)
-        xi_select(infile, ranfile=ranfile, galout=galout, ranout=ranout,
+        xiout = 'xi_colour_lin_{}.dat'.format(colour)
+        xi_select(infile, ranfile, galout, ranout, xiout,
                   zrange=(0.002, 0.65), nz=65,
                   appMin=14, appMax=19.8, colour=colour,
                   ran_dist=ran_dist, ax=ax)
-        xiout = 'xi_colour_lin_{}.dat'.format(colour)
         cmd = qsub_xi_cmd.format(galout, ranout, xiout)
         print('Executing: ', cmd)
         if qsub: subprocess.call(cmd, shell=True)
@@ -2415,13 +2414,11 @@ def xi_mag_samples(infile='mass_file', ranfile='ran_file', cshfile='xi.csh'):
         mhi = mlimits[i+1]
         galout = 'gal_' + str(mlo) + '_' + str(mhi) + '.dat'
         ranout = 'ran_' + str(mlo) + '_' + str(mhi) + '.dat'
-        xi_select(infile,
-                  ranfile=ranfile,
-                  galout=galout, ranout=ranout,
+        xiout = 'xi_{}_{}.dat'.format(mlo, mhi)
+        xi_select(infile, ranfile, galout, ranout, xiout,
                   zrange=(0.002, 0.5), nz=50,
                   appMin=mlo, appMax=mhi, absMin=-99, absMax=99,
                   ran_dist='smooth')
-        xiout = 'xi_{}_{}.dat'.format(mlo, mhi)
         print('nice xi {} {} {} -1 2 15 -1 2 15  0 60 30'.format(
             galout, ranout, xiout), file=fout)
 
@@ -2465,8 +2462,7 @@ def xi_vthresh_ev(infile=gama_data + 'jswml/auto/kcorrz01.fits', ran_dist='vol',
                 galout = galroot.format(colour, Mhi, zlo, zhi)
                 ranout = ranroot.format(colour, Mhi, zlo, zhi)
                 xiout = xiroot.format(colour, Mhi, zlo, zhi)
-                xi_select(infile, ranfile=ranfile,
-                          galout=galout, ranout=ranout,
+                xi_select(infile, ranfile, galout, ranout, xiout,
                           zrange=(zlo, zhi), nz=int(100*(zhi-zlo)),
                           appMin=14, appMax=19.8, absMin=Mlo, absMax=Mhi,
                           colour=colour, ran_dist=ran_dist, ax=ax)
@@ -2486,7 +2482,7 @@ def xi_z_samples(infile='mass_file', ranfile='ran_file', cshfile='xi.csh'):
         zhi = zlimits[i+1]
         galout = 'gal_z_' + str(zlo) + '_' + str(zhi) + '.dat'
         ranout = 'ran_z_' + str(zlo) + '_' + str(zhi) + '.dat'
-        xi_select(infile, ranfile=ranfile, galout=galout, ranout=ranout,
+        xi_select(infile, ranfile, galout, ranout, None,
                   zrange=(zlo, zhi), nz=50, appMin=14, appMax=19.4,
                   absMin=-30, absMax=-21, ran_dist='vol')
 

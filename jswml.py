@@ -507,7 +507,7 @@ def delta_lf_plots(infile='kcorrz01.fits',
 
 def ran_gen_sample(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
                    outfile='ranz.dat', param='lum', limits=(-25, -10),
-                   colour='c', zmin=0.002, zmax=0.65, nz=65):
+                   colour='c', zmin=0.002, zmax=0.65, nz=65, nfac=30):
     """Generate random distribution for single specified sample."""
     clr_limits = ('a', 'z')
     if (colour == 'b'):
@@ -529,7 +529,7 @@ def ran_gen_sample(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
                 'Mmin': Mmin, 'Mmax': Mmax, 'Mbin': 1,
                 'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
                 'idebug': 1})
-    ran_gen(infile, evfile, outfile, nfac=30, vol=0)
+    ran_gen(infile, evfile, outfile, nfac=nfac, vol=0)
 
 
 def ran_gen_colour(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
