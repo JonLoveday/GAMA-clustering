@@ -4,17 +4,13 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-import emcee
 import glob
-import h5py
-import jswml
 import math
 import numpy as np
 import os
 import os.path
 import pdb
 import pickle
-import astropy.io.fits as pyfits
 #from astLib import astCalc
 import matplotlib as mpl
 if not('DISPLAY' in os.environ):
@@ -31,9 +27,15 @@ import scipy.spatial
 import scipy.stats
 import subprocess
 #import triangle
+import warnings
+
+from astropy.io import fits
+import emcee
+import h5py
+
+import jswml
 import lum
 import util
-import warnings
 
 # Catch invalid values in numpy calls
 np.seterr(divide='warn')
@@ -48,7 +50,8 @@ omega_l = 0.7
 ln10 = math.log(10)
 root2 = math.sqrt(2)
 root2pi = math.sqrt(2*math.pi)
-Qall = 0.78
+# Default evolution parameters
+Qdef, Pdef = 1.0, 1.0
 def_mass_limits = (8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5)
 def_mag_limits = (-23, -22, -21, -20, -19, -18, -17, -16, -15)
 def_binning = (-2, 2, 20, 0, 100, 100)
@@ -89,7 +92,7 @@ plot_dir = os.environ['HOME'] + '/Documents/tex/papers/gama/pvd/'
 # -----
 
 def test(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
-         Q=0.81, P=1.45, key='w_p', xlimits=(0.01, 100)):
+         Q=Qdef, P=Pdef, key='w_p', xlimits=(0.01, 100)):
     """Test basic functionality of sample selection, correlation function
     calculation and plotting on a small data sample."""
 
@@ -99,7 +102,7 @@ def test(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
     galout = 'gal_test.dat'
     ranout = 'ran_test.dat'
     xiout = 'xi_test.dat'
-    xi_select(infile, None, galout, ranout, xiout,
+    xi_select(infile, galout, ranout, xiout,
               z_range=z_range, nz=20, app_range=(14, 19.8),
               abs_range=Mlimits,
               Q=Q, P=P, ran_dist=ran_dist, ran_fac=1)
@@ -133,7 +136,7 @@ def test(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
 
 
 def xtest(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
-          Q=0.81, P=1.45, key='w_p', xlimits=(0.01, 100), run=1,
+          Q=Qdef, P=Pdef, key='w_p', xlimits=(0.01, 100), run=1,
           pi_lim=100, rp_lim=100, onevol=0):
     """Test cross-correlation using two luminsoity-selected samples
     within a volume-limited sample if onevol is True."""
@@ -153,7 +156,7 @@ def xtest(infile=gama_data+'/jswml/auto/kcorrz01.fits', ran_dist='vol',
             galout = 'gal_test_{}.dat'.format(ilim)
             ranout = 'ran_test_{}.dat'.format(ilim)
             xiout = 'xi_test_{}.dat'.format(ilim)
-            xi_select(infile, None, galout, ranout, xiout,
+            xi_select(infile, galout, ranout, xiout,
                       z_range=z_range, nz=20, app_range=(14, 19.8),
                       abs_range=Mrange,
                       Q=Q, P=P, ran_dist=ran_dist, ran_fac=5, run=run)
@@ -634,13 +637,18 @@ class Xi1d(object):
         xi_mod[pos] = (self.sep[pos]/r0)**-gamma
         self.ic = (self.ranpairs * xi_mod).sum() / (self.ranpairs).sum()
 
-    def plot(self, ax, jack=0, color=None, fout=None, label=None):
-        if color:
-            ax.errorbar(self.sep, self.est[:, jack] + self.ic, self.cov.sig,
-                        fmt='o', color=color, label=label, capthick=1)
+    def plot(self, ax, jack=0, color=None, fout=None, label=None, pl_div=None):
+        if pl_div:
+            pl_fit = (self.sep/pl_div[0])**(- pl_div[1])
         else:
-            ax.errorbar(self.sep, self.est[:, jack] + self.ic, self.cov.sig,
-                        fmt='o', label=label, capthick=1)
+            pl_fit = 1
+#        if color:
+        ax.errorbar(self.sep, self.est[:, jack]/pl_fit + self.ic,
+                    self.cov.sig/pl_fit,
+                    fmt='o', color=color, label=label, capthick=1)
+#        else:
+#            ax.errorbar(self.sep, self.est[:, jack] + self.ic, self.cov.sig,
+#                        fmt='o', label=label, capthick=1)
 
         if fout:
             print(label, file=fout)
@@ -1353,14 +1361,15 @@ def w_mag_select():
     w_select('../kcorr.fits', 'gal_17_18_', 'sel_17_18.dat', appMin=17, appMax=18)
     w_select('../kcorr.fits', 'gal_18_19_', 'sel_18_19.dat', appMin=18, appMax=19)
     w_select('../kcorr.fits', 'gal_19_194_', 'sel_19_194.dat', appMin=19, appMax=19.4)
-    
 
-def xi_select(infile, ranfile, galout, ranout, xiout,
+
+def xi_select(infile, galout, ranout, xiout,
               mask=gama_data+'/mask/zcomp.ply', param='lum',
               z_range=(0.002, 0.65), nz=65, app_range=(14, 19.8),
               abs_range=(-99, 99), mass_range=(-99, 99), colour='c',
-              Q=0, P=0, ran_dist='fit', ran_fac=10, weighting='unif',
-              set_vmax=False, ax=None, run=0, ranzfile='ranz.dat'):
+              Q=Qdef, P=Pdef, ran_dist='fit', ran_fac=10, weighting='unif',
+              set_vmax=False, ax=None, run=0, ranzfile='ranz.dat',
+              survey_codes=None, zpctrim=99):
     """
     Select GAMA galaxies from stellar masses catalogue for xi.c.
     Ignore fluxscale parameter for now as only ~half galaxies have valid value.
@@ -1370,15 +1379,16 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
 
     def ecorr(z, Q):
         """e-correction."""
-        return Q*(z - z0)
+        return Q * (z-z0)
 
     def den_evol(z, P):
         """Density evolution at redshift z."""
-        return 10**(0.4*P*z)
+        print('den_evol, P =', P)
+        return 10**(0.4*P*(z-z0))
 
-    def vol_ev(z):
+    def vol_ev(z, P):
         """Volume element multiplied by density evolution."""
-        pz = cosmo.dV(z) * den_evol(z, P)
+        pz = samp.cosmo.dV(z) * den_evol(z, P)
         return pz
 
     if ax is None:
@@ -1387,59 +1397,83 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
 
     zvals = np.linspace(z_range[0], z_range[1], nz)
 
-    # If ranfile specified, read evolution parameters from dictionary
-    if ranfile:
-        f = open(ranfile, 'r')
-        info = eval(f.readline())
-        Q, P = info['Q'], info['P']
-        print('Q, P = {}, {}'.format(Q, P))
-        f.close()
-
     # Read input file into structure
-    hdulist = pyfits.open(infile)
-    header = hdulist[1].header
-    tbdata = hdulist[1].data
-    z0 = header['z0']
-    area = header['area']*(math.pi/180.0)*(math.pi/180.0)
-    cosmo = util.CosmoLookup(H0, omega_l, z_range)
+    par = {}
+    par['clean_photom'] = False
+    par['kc_use_poly'] = False
+    par['param'] = 'r_petro'
+    par['ev_model'] = 'z'
+    par['zmin'] = z_range[0]
+    par['zmax'] = z_range[1]
+    par['nz'] = 65
+    par['Mmin'] = abs_range[0]
+    par['Mmax'] = abs_range[1]
+    par['Mbin'] = 1
+    par['mlims'] = app_range
+    par['idebug'] = 0
+    clr_limits = ('a', 'z')
+    if (colour == 'b'):
+        clr_limits = ('b', 'c')
+    if (colour == 'r'):
+        clr_limits = ('r', 's')
+    sel_dict = {}
+    sel_dict['colour'] = clr_limits
+    samp = jswml.Sample(infile, par, sel_dict)
+    gala = samp.calc_limits(Q, vis=True)
+    z0 = samp.par['z0']
+    area = samp.par['area']
 
-    idx = ((tbdata.field('survey_class') >= 3) *
-           ((tbdata.field('vis_class') < 2) + (tbdata.field('vis_class') > 5)) *
-           (tbdata.field('z') > 0) * (tbdata.field('nq') > 2))
-    tbdata = tbdata[idx]
+#    hdulist = pyfits.open(infile)
+#    header = hdulist[1].header
+#    tbdata = hdulist[1].data
+#    z0 = header['z0']
+#    area = header['area']*(math.pi/180.0)*(math.pi/180.0)
+#    cosmo = util.CosmoLookup(H0, omega_l, z_range)
+#
+#    z = tbdata.field('z_tonry')
+#    appMag = tbdata.field('r_petro')
+#    idx = ((tbdata.field('survey_class') >= 3) *
+#           (app_range[0] <= appMag) * (appMag < app_range[1]) *
+#           (z_range[0] <= z) * (z < z_range[1]) * (tbdata.field('nq') > 2))
+##    pdb.set_trace()
+#    tbdata = tbdata[idx]
+#    appMag = appMag[idx]
+#    z = z[idx]
+#
+#    absMag = appMag - cosmo.dist_mod(z) - tbdata.field('kcorr_r') + ecorr(z, Q)
+#    idx = (abs_range[0] <= absMag) * (absMag < abs_range[1])
+#
+#    logmstar = tbdata.field('logmstar') - 2*math.log10(1.0/0.7)
+#    if mass_range[0] > 0:
+#        idx *= (mass_range[0] <= logmstar) * (logmstar < mass_range[1])
+#
+#    if colour != 'c':
+#        grcut = lum.colourCut(absMag)
+#        gr = ((tbdata.field('g_model') - tbdata.field('kcorr_g')) -
+#              (tbdata.field('r_model') - tbdata.field('kcorr_r')))
+#        if colour == 'b':
+#            idx *= (gr < grcut)
+#        else:
+#            idx *= (gr >= grcut)
+#
+#    if survey_codes:
+#        idx *= np.in1d(tbdata.field('survey_code'), survey_codes)
+#
+#    tbdata = tbdata[idx]
+#    ra = tbdata.field('ra')
+#    dec = tbdata.field('dec')
+#    ngal = len(ra)
+#    z = z[idx]
+#    absMag = absMag[idx]
+#    logmstar = logmstar[idx]
+#    rgal = cosmo.dm(z)
+#    nran = ran_fac*ngal
 
-    ra = tbdata.field('ra')
-    dec = tbdata.field('dec')
-    z = tbdata.field('z_tonry')
-    nq = tbdata.field('nq')
-    appMag = tbdata.field('r_petro')
-    absMag = appMag - cosmo.dist_mod(z) - tbdata.field('kcorr_r') + ecorr(z, Q)
-    logmstar = tbdata.field('logmstar') - 2*math.log10(1.0/0.7)
-
-    idx = ((z_range[0] <= z) * (z < z_range[1]) * (nq > 2) *
-           (app_range[0] <= appMag) * (appMag < app_range[1]) *
-           (abs_range[0] <= absMag) * (absMag < abs_range[1]))
-
-    if mass_range[0] > 0:
-        idx *= (mass_range[0] <= logmstar) * (logmstar < mass_range[1])
-
-    if colour != 'c':
-        grcut = lum.colourCut(absMag)
-        gr = ((tbdata.field('g_model') - tbdata.field('kcorr_g')) -
-              (tbdata.field('r_model') - tbdata.field('kcorr_r')))
-        if colour == 'b':
-            idx *= (gr < grcut)
-        else:
-            idx *= (gr >= grcut)
-
-    tbdata = tbdata[idx]
-    ra = ra[idx]
-    ngal = len(ra)
-    dec = dec[idx]
-    z = z[idx]
-    absMag = absMag[idx]
-    logmstar = logmstar[idx]
-    rgal = cosmo.dm(z)
+    z = gala['z']
+    ra = gala['ra']
+    dec = gala['dec']
+    ngal = len(z)
+    rgal = samp.cosmo.dm(z)
     nran = ran_fac*ngal
 
     # Redshift distribution
@@ -1447,8 +1481,13 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
     zstep = bin_edges[1] - bin_edges[0]
     zcen = bin_edges[:-1] + 0.5*zstep
     ax.step(zcen, zhist)
-    zcut = scipy.stats.scoreatpercentile(z, 99)
-    rcut = cosmo.dm(zcut)
+
+    # Trim redshift distribution to avoid long tail of galaxies or randoms
+    if zpctrim:
+        zcut = scipy.stats.scoreatpercentile(z, zpctrim)
+    else:
+        zcut = z_range[1]
+    rcut = samp.cosmo.dm(zcut)
     print('zcut, rcut = ', zcut, rcut)
 
     # Field to field variance for fit to N(z)
@@ -1464,18 +1503,18 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
             limits = abs_range
         if param == 'mass':
             limits = mass_range
-        jswml.ran_gen_sample(infile=infile,
-                             evroot=gama_data+'jswml/auto/ev_fit_{}.dat',
-                             outfile=ranzfile, param=param, limits=limits,
-                             colour=colour, zmin=z_range[0], zmax=z_range[1],
-                             nz=65, nfac=ran_fac)
+#        jswml.ran_gen_sample(infile=infile, Q=Q, P=P,
+#                             outfile=ranzfile, param=param, limits=limits,
+#                             colour=colour, zmin=z_range[0], zmax=z_range[1],
+#                             nz=65, nfac=ran_fac)
+        jswml.ran_gen(gala, ranzfile, ran_fac, Q=Q, P=P, vol=0)
         data = np.loadtxt(ranzfile, skiprows=1)
         zran = data[:, 0]
         # Select only reshifts within z_range
         idx = (z_range[0] <= zran) * (zran < z_range[1])
         zran = zran[idx]
         nran = len(zran)
-        rran = cosmo.dm(zran)
+        rran = samp.cosmo.dm(zran)
         if set_vmax:
             Vran = data[:, 1]
         else:
@@ -1502,8 +1541,8 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
         rran = cosmo.dm(zran)
 
     if ran_dist == 'vol':
-        zran = util.ran_fun(vol_ev, z_range[0], z_range[1], nran)
-        rran = cosmo.dm(zran)
+        zran = util.ran_fun(vol_ev, z_range[0], z_range[1], nran, args=(P,))
+        rran = samp.cosmo.dm(zran)
         wran = np.ones(nran)
         Vran = np.ones(nran)
 
@@ -1519,7 +1558,7 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
         #         p = np.interp(ztry, zcen, zsmooth)/hmax
         #         if np.random.random() < p: accept = 1
         #         z[i] = ztry
-        rran = cosmo.dm(zran)
+        rran = samp.cosmo.dm(zran)
         ax.plot(zcen, zsmooth)
 
     if ran_dist == 'fit':
@@ -1556,12 +1595,12 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
         print('renormalised by factor ', rfac)
         print(p)
         zran = util.ran_fun(fitfunc, z_range[0], z_range[1], nran, args=(p,))
-        rran = cosmo.dm(zran)
+        rran = samp.cosmo.dm(zran)
         ax.plot(zcen, fitfunc(zcen, p))
 
     zran_hist, bin_edges = np.histogram(zran, bins=nz, range=z_range)
     zran_hist = zran_hist*float(ngal)/nran  # Note cannot use *= due int->float
-    V_int = area/3.0 * cosmo.dm(bin_edges)**3
+    V_int = area/3.0 * samp.cosmo.dm(bin_edges)**3
     Vbin = np.diff(V_int)
     denbin = zran_hist/Vbin
     ax.plot(zcen, zran_hist)
@@ -1580,12 +1619,13 @@ def xi_select(infile, ranfile, galout, ranout, xiout,
     else:
         Vgal = np.ones(ngal)
 
-    M_mean = np.mean(absMag)
-    logm_mean = np.mean(logmstar[np.isfinite(logmstar)])
+    M_mean = np.mean(gala['absval_sel'])
+#    logm_mean = np.mean(logmstar[np.isfinite(logmstar)])
+    logm_mean = None
     z_mean = np.mean(z)
     info = {'file': infile, 'weighting': weighting, 'M_mean': M_mean,
             'logm_mean': logm_mean, 'z_mean': z_mean, 'njack': njack,
-            'zcut': zcut, 'rcut': rcut, 'set_vmax': set_vmax,
+            'zcut': zcut, 'rcut': rcut, 'set_vmax': set_vmax, 'Q': Q, 'P': P,
             'err_type': 'jack', 'abs_range': abs_range, 'z_range': z_range}
 
     galcat = Cat(ra, dec, rgal, weight=wgal, den=dengal, Vmax=Vgal, info=info)
@@ -1793,7 +1833,7 @@ def xi_mock_vol(infile='Gonzalez.fits', Mlims=(-25, -20), z_type='obs',
     zcol = 'redshift_{}'.format(z_type)
     Mlo = Mlims[0]
     Mhi = Mlims[1]
-    zmax = util.vol_limits(infile, Q=Qall, Mlims=(Mlims[1],))[0]
+    zmax = util.vol_limits(infile, Q=Qdef, Mlims=(Mlims[1],))[0]
     zrange = (0.002, zmax)
     cosmo = util.CosmoLookup(H0, omega_l, zrange)
     rcut = cosmo.dm(zrange[1])
@@ -1802,7 +1842,7 @@ def xi_mock_vol(infile='Gonzalez.fits', Mlims=(-25, -20), z_type='obs',
     tbdata = hdulist[1].data
     info = {'file': infile, 'z_type': z_type, 'weighting': 'unif',
             'njack': njack, 'err_type': 'mock', 'Mlo': Mlo, 'Mhi': Mhi,
-            'zrange': zrange, 'rcut': rcut}
+            'zrange': zrange, 'rcut': rcut, 'Q': Qdef, 'P': Pdef}
 
     samp = ((tbdata.field(zcol) >= zrange[0]) *
             (tbdata.field(zcol) < zrange[1]) *
@@ -2245,13 +2285,13 @@ def xi_lum_prep(infile='mass_file', ranfile='ran_file',
         rancat.output(ranout)
 
 
-def xi_vol(infile=gama_data + 'jswml/auto/kcorrz01.fits', Mlims=(-25, -20),
-           ran_dist='vol', run=2):
+def xi_vol(infile=gama_data+'kcorr_auto_z01.fits', Mlims=(-25, -20),
+           Q=Qdef, P=Pdef, ran_dist='vol', run=2):
     """
-    Calculate spatial correlation function volume-limited sample.
+    Calculate spatial correlation function for volume-limited sample.
     """
 
-    zmax = util.vol_limits(infile, Q=Qall, Mlims=(Mlims[1],))[0]
+    zmax = util.vol_limits(infile, Q=Q, Mlims=(Mlims[1],), kplot=1)[0]
     z_range = (0.002, zmax)
 
     plt.clf()
@@ -2260,30 +2300,56 @@ def xi_vol(infile=gama_data + 'jswml/auto/kcorrz01.fits', Mlims=(-25, -20),
     ranout = 'ran_vol.dat'
     xiout = 'xi_vol.dat'
 
-    xi_select(infile, None, galout, ranout, xiout,
-              z_range=z_range, nz=65, abs_range=Mlims,
-              ran_dist=ran_dist, ax=ax, run=run)
+    xi_select(infile, galout, ranout, xiout,
+              z_range=z_range, nz=65, abs_range=Mlims, Q=Q, P=P,
+              ran_dist=ran_dist, ax=ax, run=run, zpctrim=None)
     plt.show()
 
 
-def xi_samples(infile=gama_data+'jswml/auto/kcorrz01.fits', param='lum',
-               thresh=0, vol_lim=None, ran_dist='jswml', run=2):
+def xi_spec(infile=gama_data+'kcorr_auto_z01.fits', Mlims=(-25, -20),
+           Q=Qdef, P=Pdef, ran_dist='vol', run=2, survey_codes=(1, 5),
+           mask=gama_data+'/mask/zcomp_gama_sdss.ply'):
+    """
+    Calculate spatial correlation function for volume-limited
+    'spectroscopic' sample (GAMA and SDSS spectra only).
+    """
+
+    zmax = util.vol_limits(infile, Q=Qdef, Mlims=(Mlims[1],))[0]
+    z_range = (0.002, zmax)
+
+    plt.clf()
+    ax = plt.subplot(111)
+#    galout = 'gal_spec.dat'
+#    ranout = 'ran_spec.dat'
+#    xiout = 'xi_spec_.dat'
+    galout = 'gal_spec_gsmask.dat'
+    ranout = 'ran_spec_gsmask.dat'
+    xiout = 'xi_spec_gsmask.dat'
+
+    xi_select(infile, galout, ranout, xiout, mask=mask,
+              z_range=z_range, nz=65, abs_range=Mlims, Q=Q, P=P,
+              ran_dist=ran_dist, ax=ax, run=run, survey_codes=survey_codes)
+    plt.show()
+
+
+def xi_samples(infile=gama_data+'kcorr_auto_z01.fits', param='lum',
+               thresh=0, vol_lim=None, Q=Qdef, P=Pdef, ran_dist='jswml',
+               evsamp=False, run=2):
     """
     Calculate spatial correlation function for specified subsamples.
     If vol_lim is specified, all samples will be volume-limited to the
     specified luminosity limit.
     """
 
-    ranfile = 'ranz.dat'
     z_range = [0.002, 0.65]
     if param in ('lum', 'vlum'):
         bins = np.array(def_mag_limits)
         if param == 'vlum':
             ran_dist = 'vol'
-            zlimits = util.vol_limits(infile, Q=Qall, Mlims=bins)
+            zlimits = util.vol_limits(infile, Q=Q, Mlims=bins)
     if vol_lim:
         bins = bins[bins <= vol_lim]
-        z_range = [0.002, util.vol_limits(infile, Q=Qall, Mlims=(vol_lim,))[0]]
+        z_range = [0.002, util.vol_limits(infile, Q=Q, Mlims=(vol_lim,))[0]]
         ran_dist = 'vol'
     if param == 'mass':
         bins = def_mass_limits
@@ -2317,22 +2383,35 @@ def xi_samples(infile=gama_data+'jswml/auto/kcorrz01.fits', param='lum',
 
         if param == 'vlum':
             z_range[1] = zlimits[i+1]
-        for colour in 'cbr':
+        for colour in 'c':
+#        for colour in 'cbr':
 #            if ran_dist != 'vol':
 #                ranfile = gama_data + 'jswml/auto/ranz_{}_{}_{}_{}.dat'.format(
 #                    label, colour, *limits)
+            # If evsamp specified, read individual evolution parameters
+
+            if evsamp:
+                evfile = gama_data + 'jswml/auto/ranz_{}_{}_{}_{}.dat'.format(
+                        param, colour, abs_range[0], abs_range[1])
+                f = open(evfile, 'r')
+                info = eval(f.readline())
+                Q, P = info['Q'], info['P']
+                f.close()
+                print('Q, P = {}, {}'.format(Q, P))
             if thresh:
                 galout = 'gal_{}_{}_{}.dat'.format(label, colour, limit)
                 ranout = 'ran_{}_{}_{}.dat'.format(label, colour, limit)
+                ranzfile = 'ranz_{}_{}_{}.dat'.format(label, colour, limit)
                 xiout = 'xi_{}_{}_{}.dat'.format(label, colour, limit)
             else:
                 galout = 'gal_{}_{}_{}_{}.dat'.format(label, colour, *limits)
                 ranout = 'ran_{}_{}_{}_{}.dat'.format(label, colour, *limits)
+                ranzfile = 'ranz_{}_{}_{}_{}.dat'.format(label, colour, *limits)
                 xiout = 'xi_{}_{}_{}_{}.dat'.format(label, colour, *limits)
 
-            xi_select(infile, None, galout, ranout, xiout,
+            xi_select(infile, galout, ranout, xiout, ranzfile=ranzfile,
                       param=param, z_range=z_range, nz=65,
-                      app_range=app_range, abs_range=abs_range,
+                      app_range=app_range, abs_range=abs_range, Q=Q, P=P,
                       mass_range=mass_range, colour=colour,
                       ran_dist=ran_dist, ax=ax, run=run)
     plt.draw()
@@ -2341,7 +2420,7 @@ def xi_samples(infile=gama_data+'jswml/auto/kcorrz01.fits', param='lum',
 def xi_farrow_comp(infile=gama_data+'jswml/auto/kcorrz00.fits',
                    ran_dist='jswml', run=2):
     """
-    Calculate spatial correlation function for subsamples that match 
+    Calculate spatial correlation function for subsamples that match
     Farrow+2015 selection (largest of first 5 samples, Table 2).
     """
 
@@ -2360,13 +2439,13 @@ def xi_farrow_comp(infile=gama_data+'jswml/auto/kcorrz00.fits',
         z_range = (zlims[j+1], zlims[j])
 
         ranfile = gama_data + 'jswml/auto/ranz_lum_c_{}_{}.dat'.format(
-        abs_range[0], abs_range[1])
+                abs_range[0], abs_range[1])
         galout = 'gal_f_M{}_{}_z{}_{}.dat'.format(abs_range[0], abs_range[1],
                                                   z_range[0], z_range[1])
         ranout = 'ran_f_M{}_{}_z{}_{}.dat'.format(abs_range[0], abs_range[1],
                                                   z_range[0], z_range[1])
         xiout = 'xi_f_M{}_{}_z{}_{}.dat'.format(abs_range[0], abs_range[1],
-                                                  z_range[0], z_range[1])
+                                                z_range[0], z_range[1])
 
         xi_select(infile, ranfile, galout, ranout, xiout,
                   z_range=z_range, nz=65,
@@ -2376,8 +2455,8 @@ def xi_farrow_comp(infile=gama_data+'jswml/auto/kcorrz00.fits',
     plt.draw()
 
 
-def xi_colour_samples(infile=gama_data+'/jswml/auto/kcorrz01.fits',
-                      ran_dist='jswml', qsub=True):
+def xi_colour_samples(infile=gama_data+'kcorr_auto_z01.fits', param='lum',
+                      ran_dist='jswml', Q=Qdef, P=Pdef, run=0):
     """
     Create colour sub-samples for xi(s).
     """
@@ -2386,18 +2465,14 @@ def xi_colour_samples(infile=gama_data+'/jswml/auto/kcorrz01.fits',
     plt.clf()
     iplot = 1
     for colour in 'cbr':
-        ranfile = gama_data+'/jswml/auto/ranz_colour_{}.dat'.format(colour)
         ax = plt.subplot(nrow, ncol, iplot)
         galout = 'gal_colour_{}.dat'.format(colour)
         ranout = 'ran_colour_{}.dat'.format(colour)
-        xiout = 'xi_colour_lin_{}.dat'.format(colour)
-        xi_select(infile, ranfile, galout, ranout, xiout,
-                  zrange=(0.002, 0.65), nz=65,
-                  appMin=14, appMax=19.8, colour=colour,
-                  ran_dist=ran_dist, ax=ax)
-        cmd = qsub_xi_cmd.format(galout, ranout, xiout)
-        print('Executing: ', cmd)
-        if qsub: subprocess.call(cmd, shell=True)
+        ranzfile = 'ranz_colour_{}.dat'.format(colour)
+        xiout = 'xi_colour_{}.dat'.format(colour)
+        xi_select(infile, galout, ranout, xiout, ranzfile=ranzfile,
+                  param=param, colour=colour, Q=Q, P=P,
+                  ran_dist=ran_dist, ax=ax, run=run)
         iplot += 1
     plt.draw()
 
@@ -2438,7 +2513,7 @@ def xi_vthresh_ev(infile=gama_data + 'jswml/auto/kcorrz01.fits', ran_dist='vol',
     xiroot = 'xi_Vt_{}_{}_z_{:4.2f}_{:4.2f}.dat'
 
     Mlimits = (-23, -22, -21, -20, -19, -18)
-    zlimits = util.vol_limits(infile, Q=Qall, Mlims=Mlimits)
+    zlimits = util.vol_limits(infile, Q=Qdef, Mlims=Mlimits)
     zmin = 0.002
     zbins = ((zmin, 0.4, zlimits[0]),
              (zmin, 0.2, 0.3, 0.4, zlimits[1]),
@@ -2809,7 +2884,7 @@ def pvd_mocks_vol(infile='Gonzalez.fits', Mlims=(-25, -20),
     c = 3e5
     Mlo = Mlims[0]
     Mhi = Mlims[1]
-    zmax = util.vol_limits(infile, Q=Qall, Mlims=(Mlims[1],))[0]
+    zmax = util.vol_limits(infile, Q=Qdef, Mlims=(Mlims[1],))[0]
     zrange = (0.002, zmax)
     cosmo = util.CosmoLookup(H0, omega_l, zrange)
     hdulist = pyfits.open(infile)
@@ -3930,7 +4005,7 @@ def zhist(galtemp='gal_{}_{}_{}.dat', rantemp='ran_{}_{}_{}.dat',
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
 
 
-def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat'):
+def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat', nbin=50):
     """Plot redshift histograms for galaxy & random input files to xi.c."""
 
     def read_file(infile, nskip=3):
@@ -3942,7 +4017,56 @@ def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat'):
     dg = read_file(galfile)
     rg = read_file(ranfile)
     plt.clf()
-    plt.hist((dg, rg), bins=20, normed=True, histtype='step')
+    plt.hist((dg, rg), bins=nbin, normed=True, histtype='step')
+    plt.xlabel('Distance [Mpc/h]')
+    plt.ylabel('Frequency')
+    plt.show()
+
+
+def zhist_mocks(galfile='gal_0_1.dat', ranfile='ran_1.dat'):
+    """Plot redshift histograms for galaxy & random mocks."""
+
+    def read_file(infile, nskip=3):
+        # Read input file into array and return array of distances
+        f = open(infile, 'r')
+        info = eval(f.readline())
+        rcut = info['rcut']
+        f.close()
+        data = np.loadtxt(infile, skiprows=nskip)
+        dist = np.sqrt(np.sum(data[:,0:3]**2, axis=1))
+        return rcut, dist
+
+    dgh_array = np.zeros((20, 26))
+    ngal = 0
+    for ireal in xrange(26):
+        dghsum = np.zeros(20)
+        for ireg in xrange(1, 4):
+            galfile = 'gal_vol_{:1d}_{:02d}.dat'.format(ireg, ireal)
+            rcut, dg = read_file(galfile)
+            dgh, edges = np.histogram(dg, bins=20, range=(0, rcut))
+            dghsum += dgh
+            ngal += len(dg)
+        dgh_array[:, ireal] = dghsum
+
+    dgmean = np.mean(dgh_array, axis=1)
+    dgstd = np.std(dgh_array, axis=1)
+    dgpc = np.percentile(dgh_array, (5, 95), axis=1)
+    drhsum = np.zeros(20)
+    nran = 0
+    for ireg in xrange(1, 4):
+        ranfile = 'ran_vol_{:1d}.dat'.format(ireg)
+        rcut, dg = read_file(ranfile)
+        drh, edges = np.histogram(dg, bins=20, range=(0, rcut))
+        drhsum += drh
+        nran += len(dg)
+
+    norm = float(ngal)/nran/26
+    r = (edges[:-1] + edges[1:]) / 2
+    plt.clf()
+#    plt.errorbar(r, dgmean, dgstd)
+#    plt.errorbar(r, dgmean, dgpc)
+#    plt.plot(r, drhsum*norm)
+    plt.plot(r, dgh_array)
     plt.xlabel('Distance [Mpc/h]')
     plt.ylabel('Frequency')
     plt.show()
@@ -4100,7 +4224,7 @@ def xi_plot_cf(infile='xi_vol.dat', key='w_p', pi_max=40.0,
 
 
 def xi_plot1(files=('xi_vol.dat',), key='w_p', pi_max=40.0,
-             binning=1, fit_range=(0.1, 10),
+             binning=1, fit_range=(0.1, 10), pl_div=None,
              xlimits=(0.01, 100), ylimits=(0.5, 5000), ic_rmax=0, neig=0,
              jack=0, outfile=None, plot_file=None, plot_size=(4, 4)):
     """Plot clustering results for given file list in single panel."""
@@ -4110,7 +4234,7 @@ def xi_plot1(files=('xi_vol.dat',), key='w_p', pi_max=40.0,
     panels.append({'files': files, 'comps': comps, 'label': label})
     xi_plot(key, panels, binning=binning, jack=jack, pi_max=pi_max,
             fit_range=fit_range, xlimits=xlimits, ylimits=ylimits,
-            ic_rmax=ic_rmax, neig=neig,
+            ic_rmax=ic_rmax, neig=neig, pl_div=pl_div, landscape=True,
             outfile=outfile, plot_file=plot_file, plot_size=plot_size)
 
 
@@ -4259,7 +4383,7 @@ def farrow_comp_plot(intemp='xi_f_M{}_{}_z{}_{}.dat', key='w_p',
 def xi_plot(key, panels, binning=1, jack=0, pi_max=40.0,
             fit_range=(0.01, 5), bias_par='M_mean', bias_scale=3.0,
             xlimits=(0.01, 100), ylimits=(0.5, 5e3), ic_rmax=0, neig=0,
-            pl_range=(0.2, 9), outfile=None, plot_file=None,
+            pl_range=(0.2, 9), pl_div=None, outfile=None, plot_file=None,
             plot_size=def_plot_size, landscape=False):
     """Plot clustering results according to key: xis, xi2, w_p, xir or bias.
     panels contains list of things to be plotted within each panel:
@@ -4289,6 +4413,17 @@ def xi_plot(key, panels, binning=1, jack=0, pi_max=40.0,
     else:
         fout = None
 
+    if pl_div and key=='w_p':
+        # Convert power-law parameters from real to projected space
+        gamma = pl_div[1]
+        r0 = pl_div[0]
+        A = (r0**gamma * scipy.special.gamma(0.5) *
+             scipy.special.gamma(0.5*(gamma-1)) /
+             scipy.special.gamma(0.5*gamma))
+        pl_div[1] -= 1
+        pl_div[0] = A**(1.0/(gamma-1))
+        print(pl_div)
+
     for panel in panels:
         try:
             ax = axes[irow, icol]
@@ -4308,7 +4443,8 @@ def xi_plot(key, panels, binning=1, jack=0, pi_max=40.0,
             if key == 'xi2':
                 xi.plot(ax, cbar=False)
             else:
-                xi.plot(ax, jack=jack, color=clr_list[i], fout=fout)
+                xi.plot(ax, jack=jack, color=clr_list[i], fout=fout,
+                        pl_div=pl_div)
                 if fit_range:
                     gamma, gamma_err, r0, r0_err, ic, _, _ = xi.fit(
                         fit_range, jack=jack, ax=ax, ic_rmax=ic_rmax,

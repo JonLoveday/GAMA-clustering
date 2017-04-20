@@ -2,33 +2,74 @@
 
 from __future__ import division
 
-from astropy.cosmology import FlatLambdaCDM
-#from astLib import astCalc
 import math
 import numpy as np
 import os
 import pdb
-import astropy.io.fits as pyfits
 import pylab as plt
 import scipy.optimize
 import scipy.stats
 import subprocess
+
+from astLib import astCalc
+from astropy.cosmology import FlatLambdaCDM
+from astropy.io import fits
 
 # Constants
 ln10 = math.log(10)
 gama_data = os.environ['GAMA_DATA']
 
 
-class CosmoLookup(object):
+class CosmoLookupOld(object):
     """Distance and volume-element lookup tables.
     NB volume element is per unit solid angle."""
+
+    def __init__(self, H0, omega_l, zRange, nbin=1000):
+        c = 3e5
+        astCalc.H0 = H0
+        astCalc.OMEGA_L = omega_l
+        astCalc.OMEGA_M0 = 1 - omega_l
+        self._zrange = zRange
+        self._z = np.linspace(zRange[0], zRange[1], nbin)
+        nz = self._z.size
+        self._dm = np.zeros(nz)
+        self._dV = np.zeros(nz)
+        for i in xrange(nz):
+            self._dm[i] = astCalc.dm(self._z[i])
+            self._dV[i] = c/H0*self._dm[i]*self._dm[i]/math.sqrt(astCalc.Ez2(self._z[i]))
+        self._dist_mod = 5*np.log10((1+self._z) * self._dm) + 25
+    def dm(self, z):
+        """Transverse comoving distance."""
+        return np.interp(z, self._z, self._dm)
+
+    def dl(self, z):
+        """Luminosity distance."""
+        return (1+z)*np.interp(z, self._z, self._dm)
+
+    def da(self, z):
+        """Angular diameter distance."""
+        return np.interp(z, self._z, self._dm)/(1+z)
+
+    def dV(self, z):
+        """Volume element per unit solid angle."""
+        return np.interp(z, self._z, self._dV)
+
+    def dist_mod(self, z):
+        """Distance modulus."""
+        return np.interp(z, self._z, self._dist_mod)
+
+
+class CosmoLookup(object):
+    """Distance and volume-element lookup tables.
+    NB volume element is differential per unit solid angle."""
 
     def __init__(self, H0, omega_l, zRange, nz=1000):
         cosmo = FlatLambdaCDM(H0=H0, Om0=1-omega_l)
         self._zrange = zRange
         self._z = np.linspace(zRange[0], zRange[1], nz)
         self._dm = cosmo.comoving_distance(self._z)
-        self._dV = cosmo.comoving_volume(self._z)
+#        self._dV = cosmo.comoving_volume(self._z)
+        self._dV = cosmo.differential_comoving_volume(self._z)
         self._dist_mod = cosmo.distmod(self._z)
 
     def dm(self, z):
@@ -51,6 +92,7 @@ class CosmoLookup(object):
         """Distance modulus."""
         return np.interp(z, self._z, self._dist_mod)
 
+
 def ran_dist(x, p, nran):
     """Generate nran random points according to distribution p(x)"""
 
@@ -61,12 +103,14 @@ def ran_dist(x, p, nran):
     r = np.random.random(nran)
     return np.interp(r, y, x)
 
+
 def ran_fun(f, xmin, xmax, nran, args=(), nbin=1000):
     """Generate nran random points according to pdf f(x)"""
 
     x = np.linspace(xmin, xmax, nbin)
     p = f(x, *args)
     return ran_dist(x, p, nran)
+
 
 def ran_fun2(f, xmin, xmax, ymin, ymax, nran, args=(), nbin=1000, pplot=False):
     """Generate nran random points according to 2d pdf f(x,y)"""
@@ -93,13 +137,14 @@ def ran_fun2(f, xmin, xmax, ymin, ymax, nran, args=(), nbin=1000, pplot=False):
     # Add uniform random offsets to avoid quantization
     xoff = dx * (np.random.random(nran) - 0.5)
     yoff = dy * (np.random.random(nran) - 0.5)
-    
+
     return xran + xoff, yran + yoff
+
 
 def ran_fun_test():
     """Test ran_fun"""
 
-    def fun(x,y):
+    def fun(x, y):
         return np.cos(x)**2 * np.sin(y)**2
 
     xr, yr = ran_fun2(fun, -5, 5, -5, 5, 10000, pplot=True)
@@ -326,7 +371,7 @@ def mock_ke_corr(z):
     return corr
 
 
-def vol_limits(infile=gama_data+'jswml/auto/kcorrz01.fits',  mlim=19.8, Q=0.81,
+def vol_limits(infile=gama_data+'kcorr_auto_z01.fits',  mlim=19.8, Q=0.81,
                Mlims=(-23, -22, -21, -20, -19, -18, -17, -16, -15),
                plot_fac=0.1, kplot=0):
     """Determine redshift limits corresponding to given absolute magnitude
@@ -342,7 +387,7 @@ def vol_limits(infile=gama_data+'jswml/auto/kcorrz01.fits',  mlim=19.8, Q=0.81,
         k = scipy.stats.scoreatpercentile(kc[idx], 95)
         return mlim - cosmo.dist_mod(zlim) - k + Q*(zlim-z0)
 
-    hdulist = pyfits.open(infile)
+    hdulist = fits.open(infile)
     header = hdulist[1].header
     H0 = 100.0
     z0 = header['z0']
@@ -386,12 +431,12 @@ def vol_limits(infile=gama_data+'jswml/auto/kcorrz01.fits',  mlim=19.8, Q=0.81,
             zlim = zrange[1]
         else:
             zlim = scipy.optimize.brentq(
-                lambda z: Mvol(z) - Mlim, zrange[0], zrange[1], 
+                lambda z: Mvol(z) - Mlim, zrange[0], zrange[1],
                 xtol=1e-5, rtol=1e-5)
         z_list.append(zlim)
         print Mlim, zlim
         ax.plot((zrange[0], zlim, zlim), (Mlim, Mlim, Mrange[1]))
-    plt.draw()
+    plt.show()
     return z_list
 
 def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,

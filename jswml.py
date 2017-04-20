@@ -82,6 +82,7 @@ P_late = 0.13
 # Determined from GAMA-II.
 Q_clr = {'c': 0.78, 'b': 0.23, 'r': 0.83}
 P_clr = {'c': 1.72, 'b': 3.55, 'r': 1.10}
+Qdef, Pdef = 1.0, 1.0
 
 # Factor by which to multiply apparent radius in arcsec to get
 # absolute radius in kpc when distance measured in Mpc
@@ -152,8 +153,9 @@ def ev_fit_samples(infile='kcorrz01.fits', outroot='ev_{}_petro_fit_{}.dat',
     del sel_dict['colour']
 
 
-def ev_fit_test(infile='kcorrz01.fits', outroot='ev_test_{}_petro_fit_{}.dat',
-                colour='c', param='r_petro', method='lfchi', ev_model='z'):
+def ev_fit_test(infile='kcorrz01.fits', outroot='ev_test_Mlt{}.dat',
+                colour='c', param='r_petro', method='lfchi', ev_model='z',
+                Mmax=-12):
     """Determine ev parameters and density-corrected Vmax for specified sample
     using small number of P, Q bins and no optimization."""
     par['ev_model'] = ev_model
@@ -162,9 +164,10 @@ def ev_fit_test(infile='kcorrz01.fits', outroot='ev_test_{}_petro_fit_{}.dat',
     if (colour == 'b'): clr_limits = ('b', 'c')
     if (colour == 'r'): clr_limits = ('r', 's')
     sel_dict['colour'] = clr_limits
-    outfile = outroot.format(method, colour)
+#    outfile = outroot.format(method, colour)
+    outfile = outroot.format(Mmax)
     ev_fit(infile, outfile, Pbins=(0.0, 2.5, 25), Qbins=(0.0, 2.0, 20), opt=0,
-           param=param, method=method)
+           param=param, method=method, Mmax=Mmax)
 
 
 def ev_fit_mock(infile='kcorrz01.fits', outroot='ev_{:02d}.dat', ireal=0,
@@ -295,7 +298,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
 
     # Volume out to galaxy redshifts
     # First calculate volumes without evolution
-    samp = Sample(infile, sel_dict, 0, nqmin=2)
+    samp = Sample(infile, par, sel_dict, 0, nqmin=2)
     gala = samp.calc_limits(0)
     zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
@@ -306,7 +309,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
     V_dc = np.dot(delta * V, S_obs)
 
     # Now volume with evolution
-    samp = Sample(infile, sel_dict, Q, nqmin=2)
+    samp = Sample(infile, par, sel_dict, Q, nqmin=2)
     gala = samp.calc_limits(Q)
     zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
@@ -505,7 +508,7 @@ def delta_lf_plots(infile='kcorrz01.fits',
     plt.savefig(plot_dir + 'delta_lf_1.7_0.7.pdf', bbox_inches='tight')
 
 
-def ran_gen_sample(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
+def ran_gen_sample(infile='kcorrz01.fits', Q=Qdef, P=Pdef,
                    outfile='ranz.dat', param='lum', limits=(-25, -10),
                    colour='c', zmin=0.002, zmax=0.65, nz=65, nfac=30):
     """Generate random distribution for single specified sample."""
@@ -524,143 +527,16 @@ def ran_gen_sample(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
         M_h_corr = 2*math.log10(1.0/0.7)
         sel_dict['logmstar'] = (limits[0] + M_h_corr, limits[1] + M_h_corr)
 
-    evfile = evroot.format(colour)
     par.update({'zmin': zmin, 'zmax': zmax, 'nz': nz,
                 'Mmin': Mmin, 'Mmax': Mmax, 'Mbin': 1,
                 'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
                 'idebug': 1})
-    ran_gen(infile, evfile, outfile, nfac=nfac, vol=0)
+    ran_gen(infile, outfile, nfac=nfac, Q=Q, P=P, vol=0)
 
 
-def ran_gen_colour(infile='kcorrz01.fits', evroot='ev_fit_{}.dat',
-                   outroot='ranz_colour_{}.dat'):
-    """Random distributions forcolour bins."""
-    for colour in 'cbr':
-        clr_limits = ('a', 'z')
-        if (colour == 'b'):
-            clr_limits = ('b', 'c')
-        if (colour == 'r'):
-            clr_limits = ('r', 's')
-        sel_dict['colour'] = clr_limits
-        evfile = evroot.format(colour)
-        outfile = outroot.format(colour)
-        par.update({'zmin': 0.002, 'zmax': 0.65, 'nz': 65,
-                    'Mmin': -25, 'Mmax': -10, 'Mbin': 1,
-                    'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
-                    'idebug': 1})
-        ran_gen(infile, evfile, outfile, nfac=30, vol=0)
-
-
-def ran_gen_mass(infile='kcorrz01.fits', 
-                 evroot='ev_fit_{}.dat', 
-                 outroot='ranz_mass_{}_{}_{}.dat'):
-    """Random distributions for mass bins."""
-    Mlimits = mass_limits
-    M_h_corr = 2*math.log10(1.0/0.7)
-    for colour in 'cbr':
-        clr_limits = ('a', 'z')
-        if (colour == 'b'): 
-            clr_limits = ('b', 'c')
-        if (colour == 'r'): 
-            clr_limits = ('r', 's')
-        sel_dict['colour'] = clr_limits
-        for i in range(len(Mlimits)-1):
-            Mlo = Mlimits[i]
-            Mhi = Mlimits[i+1]
-            sel_dict['logmstar'] = (Mlo + M_h_corr, Mhi + M_h_corr)
-            evfile = evroot.format(colour)
-            outfile = outroot.format(colour, Mlo, Mhi)
-            par.update({'zmin': 0.002, 'zmax': 0.65, 'nz': 65,
-                        'Mmin': -25, 'Mmax': -10, 'Mbin': 1, 
-                        'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
-                        'idebug': 1})
-            ran_gen(infile, evfile, outfile, nfac=30, vol=0)
-            del sel_dict['logmstar']
-        del sel_dict['colour']
-
-def ran_gen_lum(infile='kcorrz01.fits', 
-                evroot='ev_fit_{}.dat', 
-                outroot='ranz_lum_{}_{}_{}.dat'):
-    """Random distributions for luminosity bins."""
-    Mlimits = mag_limits
-    for colour in 'cbr':
-        clr_limits = ('a', 'z')
-        if (colour == 'b'): 
-            clr_limits = ('b', 'c')
-        if (colour == 'r'): 
-            clr_limits = ('r', 's')
-        sel_dict['colour'] = clr_limits
-        for i in range(len(Mlimits)-1):
-            Mlo = Mlimits[i]
-            Mhi = Mlimits[i+1]
-            evfile = evroot.format(colour)
-            outfile = outroot.format(colour, Mlo, Mhi)
-            par.update({'zmin': 0.002, 'zmax': 0.65, 'nz': 65,
-                        'Mmin': Mlo, 'Mmax': Mhi, 'Mbin': 1, 
-                        'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
-                        'idebug': 1})
-            ran_gen(infile, evfile, outfile, nfac=30, vol=0)
-        del sel_dict['colour']
-
-def ran_gen_lum_vol(infile='kcorrz01.fits', 
-                    evroot='ev_fit_{}.dat', 
-                    outroot='ranz_lumV_{}_{}_{}.dat'):
-    """Volume-limited random distributions for luminosity bins 
-    with common ev parameters."""
-    Mlimits = mag_limits
-    zlimits = util.vol_limits('kcorrz01.fits', Mlims=Mlimits)
-    for colour in 'cbr':
-        clr_limits = ('a', 'z')
-        if (colour == 'b'): 
-            clr_limits = ('b', 'c')
-        if (colour == 'r'): 
-            clr_limits = ('r', 's')
-        sel_dict['colour'] = clr_limits
-        for i in range(len(Mlimits)-1):
-            Mlo = Mlimits[i]
-            Mhi = Mlimits[i+1]
-            evfile = evroot.format(colour)
-            outfile = outroot.format(colour, Mlo, Mhi)
-            par.update({'zmin': 0.002, 'zmax': zlimits[i+1], 
-                        'nz': int(100 * zlimits[i+1]),
-                        'Mmin': Mlo, 'Mmax': Mhi, 'Mbin': 1, 
-                        'param': 'r_petro', 'dmlim': 2, 'mlims': (0, 19.8),
-                        'idebug': 1})
-            ran_gen(infile, evfile, outfile, nfac=30, vol=1)
-        del sel_dict['colour']
-
-def ran_gen_lum_thresh(infile='kcorrz01.fits', outroot='ranz_lum_lt_{}.dat'):
-    """Random distributions for luminosity thresholds with common ev parameters."""
-    Q, P = 0.78, 1.73
-    Mlo = -99
-    Mthresh = (-22, -21, -20, -19, -18, -17)
-    for i in range(len(Mthresh)):
-        Mhi = Mthresh[i]
-        outfile = outroot.format(Mhi)
-        ran_gen(infile, outfile,
-                param_list=(('r_petro', (14, 19.8), (14, 19.8, 1), 
-                             (Mlo, Mhi, 1), 0),), 
-                nfac=30, Q=Q, P=P, nz=50, zmin=0.002, zmax=0.5, idebug=1)
-
-def ran_gen_mock_lum(infile='../G3CMockGalv06.fits', outroot='ranz_{}_{}_{}.dat'):
-    """Random distributions for luminosity bins with common ev parameters."""
-    Q, P = 0.14, 1.06
-    Mlimits = (-23, -22, -21, -20, -19, -18, -17, -16)
-    for ivol in range(1,10):
-        sel_dict['Volume'] = (ivol-0.5, ivol+0.5)
-        for i in range(len(Mlimits)-1):
-            Mlo = Mlimits[i]
-            Mhi = Mlimits[i+1]
-            outfile = outroot.format(ivol, Mlo, Mhi)
-            ran_gen(infile, outfile,
-                    param_list=(('Rpetro', (14, 19.8), (14, 19.8, 1), 
-                                 (Mlo, Mhi, 1), 0),), 
-                    nfac=10, Q=Q, P=P, nz=50, zmin=0.002, zmax=0.5, idebug=1)
-
-
-#------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Main procedures
-#------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 
 def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
@@ -690,7 +566,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
     assert method in methods
     lf_bins = np.linspace(Mmin, Mmax, Mbin+1)
 
-    samp = Sample(infile, sel_dict)
+    samp = Sample(infile, par, sel_dict)
     costfn = Cost(samp, nz, (zmin, zmax), lf_bins, lf_zbins, method,
                   P_prior, Q_prior, Qbins[0], Qbins[1], err_type)
     out = {'par': par}
@@ -793,7 +669,7 @@ def Vmax_out(infile, evfile, outfile, param='r_petro',
                 'ev_model': ev_model, 'idebug': idebug})
 
     # First calculate Vmax values without evolution
-    samp = Sample(infile, sel_dict, 0, nqmin=2)
+    samp = Sample(infile, par, sel_dict, 0, nqmin=2)
     gala = samp.calc_limits(0)
     zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
@@ -804,7 +680,7 @@ def Vmax_out(infile, evfile, outfile, param='r_petro',
 #    Vmax_dc = np.dot(delta * V, S)
 
     # Now include evolution
-    samp = Sample(infile, sel_dict, Q, nqmin=2)
+    samp = Sample(infile, par, sel_dict, Q, nqmin=2)
     gala = samp.calc_limits(Q)
     S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vmax_dec, niter = delta_solve(
@@ -1040,7 +916,7 @@ def lfnd(inFile, outFile, param_list, zmin=0.002, zmax=0.65, nz=65,
     fout.close()
 
 
-def ran_gen(infile, evfile, outfile, nfac, vol=0):
+def ran_gen(gala, outfile, nfac, Q=Qdef, P=Pdef, vol=0):
     """Generate random distribution nfac times larger than input catalogue."""
 
     def vol_ev(z):
@@ -1056,15 +932,15 @@ def ran_gen(infile, evfile, outfile, nfac, vol=0):
     print par
     print sel_dict
 
-    f = open(evfile, 'r')
-    dat = pickle.load(f)
-    f.close()
-    P = dat['P']
-    Q = dat['Q']
-    print 'P, Q =', P, Q
+#    f = open(evfile, 'r')
+#    dat = pickle.load(f)
+#    f.close()
+#    P = dat['P']
+#    Q = dat['Q']
+#    print 'P, Q =', P, Q
 
-    samp = Sample(infile, sel_dict)
-    gala = samp.calc_limits(Q)
+#    samp = Sample(infile, par, sel_dict)
+#    gala = samp.calc_limits(Q)
     zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
     S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
@@ -1122,7 +998,7 @@ def vol_limit(Mmin, Mmax, zmin, zmax, infile='kcorrz01.fits', Q=0):
     par['zmin'] = zmin
     par['zmax'] = zmax
 
-    samp = Sample(infile, sel_dict, Q=Q)
+    samp = Sample(infile, par, sel_dict, Q=Q)
     z = samp.gal_arr['z']
     M = samp.gal_arr['absval_sel']
     idx = (zmin < z) * (z < zmax)
@@ -1674,6 +1550,236 @@ def read_gama(file, param_list):
 # Support classes and functions
 #------------------------------------------------------------------------------
 
+
+class Sample(object):
+    """A sample of galaxies, whose attributes are stored in
+    structured array gal_arr."""
+
+    def __init__(self, infile, selpar, sel_dict, Q=0, chi2max=10, nqmin=3):
+        """Read selected objects from FITS table."""
+
+        global cosmo, par
+
+        par = selpar
+        zmin, zmax = par['zmin'], par['zmax']
+        self.Mmin = par['Mmin']
+        self.Mmax = par['Mmax']
+        self.Mbin = par['Mbin']
+        self.Mstep = float(self.Mmax - self.Mmin)/self.Mbin
+
+        hdulist = fits.open(infile)
+        header = hdulist[1].header
+        tbdata = hdulist[1].data
+        cols = hdulist[1].columns
+        par['H0'] = 100.0
+        par['omega_l'] = header['OMEGA_L']
+        par['z0'] = header['Z0']
+        par['area'] = header['AREA'] * (math.pi/180.0)**2
+        cosmo = util.CosmoLookup(par['H0'], par['omega_l'], (zmin, zmax))
+        self.par = par
+        self.cosmo = cosmo
+        print('H0, omega_l, z0, area/Sr = ',
+              par['H0'], par['omega_l'], par['z0'], par['area'])
+
+        try:
+            alpha = header['alpha']
+            sim = True
+            print 'Simulated data'
+        except:
+            sim = False
+
+        if 'IREAL' in cols.names:
+            mock = True
+            sel = ((tbdata['ireal'] == par['ireal']) *
+                   (tbdata['redshift_obs'] >= zmin) *
+                   (tbdata['redshift_obs'] < zmax))
+        else:
+            mock = False
+            sel = ((tbdata['survey_class'] > 3) *
+                   (tbdata['nq'] >= nqmin) *
+                   (tbdata['z_tonry'] >= zmin) *
+                   (tbdata['z_tonry'] < zmax))
+
+        # Apply other selection limits in sel_dict
+        for key, limits in sel_dict.iteritems():
+            print key, limits
+            sel *= ((tbdata[key] >= limits[0]) *
+                    (tbdata[key] < limits[1]))
+            par[key] = limits
+
+        # Exclude objects with suspect photometry
+        # pdb.set_trace()
+        if par['clean_photom']:
+            ncand = len(tbdata[sel])
+            sel *= ((tbdata['bn_objid'] < 0) *
+                    (np.fabs(tbdata['r_petro'] - tbdata['r_sersic']) <
+                    par['dmlim']))
+            nclean = len(tbdata[sel])
+            print nclean, 'out of', ncand, 'targets with clean photometry'
+
+        tbdata = tbdata[sel]
+        ngal = len(tbdata)
+        nk = tbdata['pcoeff_r'].shape[1]
+        gal_arr = np.zeros(
+            ngal,
+            dtype=[('cataid', 'int32'),
+                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
+                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
+                   ('ra', 'float32'), ('dec', 'float32'),
+                   ('weight', 'float32'),
+                   ('kc', 'float32'), ('kcoeff', 'float32', nk),
+                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
+                   ])
+        if mock:
+            z = tbdata['redshift_obs']
+            gal_arr['cataid'] = 0
+            gal_arr['ra'] = tbdata['ra']
+            gal_arr['dec'] = tbdata['dec']
+            gal_arr['appval_sel'] = tbdata['SDSS_r_obs_app']
+            gal_arr['appval_lf'] = tbdata[par['param']]
+            gal_arr['z'] = z
+            gal_arr['kc'] = tbdata['kcorr_r']
+            gal_arr['kcoeff'] = tbdata['pcoeff_r']
+        else:
+            z = tbdata['z_tonry']
+            gal_arr['cataid'] = tbdata['cataid']
+            gal_arr['ra'] = tbdata['ra']
+            gal_arr['dec'] = tbdata['dec']
+            gal_arr['appval_sel'] = tbdata['r_petro']
+            gal_arr['appval_lf'] = tbdata[par['param']]
+            gal_arr['z'] = z
+            gal_arr['kc'] = tbdata['kcorr_r']
+            gal_arr['kcoeff'] = tbdata['pcoeff_r']
+
+        if par['kc_use_poly']:
+            gal_arr['kc'] = np.polynomial.polynomial.polyval(
+                z - par['z0'], gal_arr['kcoeff'].transpose(), tensor=False)
+        if sim:
+            # Reverse coeffs given in old (high -> low) order
+            gal_arr['kcoeff'] = gal_arr['kcoeff'][:, ::-1]
+
+        # Fit polynomial to median K(z) for good fits
+        good = np.isfinite(gal_arr['kc']) * (tbdata['chi2'] < chi2max)
+        zbin = np.linspace(par['zmin'], par['zmax'], 50) - par['z0']
+        k_array = np.polynomial.polynomial.polyval(
+            zbin, gal_arr['kcoeff'][good].transpose())
+        k_median = np.median(k_array, axis=0)
+        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
+
+        # Set any missing or bad k-corrs to median values
+        bad = np.logical_not(good)
+        nbad = len(z[bad])
+        if nbad > 0:
+            gal_arr['kc'][bad] = np.polynomial.polynomial.polyval(
+                z[bad] - par['z0'], self.kmean)
+            gal_arr['kcoeff'][bad] = self.kmean
+            print nbad, 'missing/bad k-corrections replaced with mean'
+            f = open('bad_kcorr.txt', 'w')
+            for ibad in xrange(nbad):
+                print >> f, gal_arr['cataid'][bad][ibad]
+            f.close()
+
+        gal_arr['absval_sel'] = (gal_arr['appval_sel'] - cosmo.dist_mod(z) -
+                                 gal_arr['kc'] + ecorr(z, Q))
+        gal_arr['absval_lf'] = (gal_arr['appval_lf'] - cosmo.dist_mod(z) -
+                                gal_arr['kc'] + ecorr(z, Q))
+
+        self.header = header
+        self.tbdata = tbdata
+        self.gal_arr = gal_arr
+        self.ngal = ngal
+        print ngal, 'galaxies selected'
+
+        # Completeness weight
+        # sb = (tbdata[('r_petro') + 2.5*lg2pi +
+        #                   5*np.log10(tbdata[('petror50_r')))
+        try:
+            sb = tbdata['r_sb']
+            imcomp = np.interp(sb, sb_tab, comp_tab)
+        except:
+            print 'No column r_sb; ignoring SB completeness'
+            imcomp = np.ones(ngal)
+        try:
+            r_fibre = tbdata['fibermag_r']
+            zcomp = z_comp(r_fibre)
+        except:
+            print 'No column fibermag_r; ignoring redshift completeness'
+            zcomp = np.ones(ngal)
+        self.gal_arr['weight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
+
+        # Read Vmax values if present
+        try:
+            self.Vmax_raw = tbdata['Vmax_raw']
+            self.Vmax_dc = tbdata['Vmax_dc']
+            self.Vmax_dec = tbdata['Vmax_dec']
+        except:
+            pass
+
+    def calc_limits(self, Q, vis=True):
+        """Calculate absolute values and visibilty limits for each galaxy,
+        returning a view of gal_arr for galaxies within absolute limits."""
+
+        zmin, zmax = par['zmin'], par['zmax']
+        ngal = self.ngal
+        z = self.gal_arr['z']
+        sel = (z > 0)
+
+        kc = self.gal_arr['kc']
+        kcoeff = self.gal_arr['kcoeff']
+        self.gal_arr['absval_sel'] = (self.gal_arr['appval_sel'] -
+                                      cosmo.dist_mod(z) - kc + ecorr(z, Q))
+        self.gal_arr['absval_lf'] = (self.gal_arr['appval_lf'] -
+                                     cosmo.dist_mod(z) - kc + ecorr(z, Q))
+        if vis:
+            self.gal_arr['zlo'] = map(
+                lambda i: zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q),
+                xrange(ngal))
+            self.gal_arr['zhi'] = map(
+                lambda i: zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q),
+                xrange(ngal))
+
+        # Galaxies within absolute limits
+        absm = self.gal_arr['absval_lf']
+        sel *= (par['Mmin'] <= absm) * (absm < par['Mmax'])
+
+        gala = self.gal_arr[sel]
+        if par['idebug'] > 1:
+            print len(gala), 'galaxies satisfy absolute limits'
+        return gala
+
+    def abs_bin(self, absval):
+        """Returns bin number and fraction for given absval, such that:
+        absval = absMin + (iabs+frac)*absStep."""
+        
+        absval = np.clip(absval, self.Mmin, self.Mmax)
+	iabs = np.floor((absval - self.Mmin)/self.Mstep).astype(np.int32)
+        iabs = np.clip(iabs, 0, self.Mbin - 1)
+        frac = (absval - (self.Mmin + iabs*self.Mstep))/self.Mstep
+        return iabs, frac
+
+    def subset(self, idx):
+        """Return subset of gala with given indices."""
+        subset = Sample(self.type, self.qty_list)
+        subset.gal_arr = self.gal_arr[idx]
+        subset.ngal = len(subset.gal_arr)
+        return subset
+
+    def resample(self):
+        """Bootstrap resampling"""
+        idx = np.random.randint(0, self.ngal, self.ngal)
+        return self.subset(idx)
+    
+    def jacknife(self, jack):
+        """Return a subsample with jacknife region jack omitted"""
+
+        idx = (self.gal_arr['ra'] < ra_jack[jack]) + (self.gal_arr['ra'] >= ra_jack[jack] + 4.0)
+        subset = self.subset(idx)
+        subset.area *= 8.0/9.0
+        return subset
+
+
 class Qty(object):
     """Class for a given quantity, with methods to convert between observed
     ('apparent') and derived ('absolute') values, distance limits and
@@ -1764,228 +1870,6 @@ class Qty(object):
         iapp = np.clip(iapp, 0, self.napp - 1)
         frac = (appval - (self.appMin + iapp*self.appStep))/self.appStep
         return iapp, frac
-
-
-class Sample(object):
-    """A sample of galaxies, whose attributes are stored in
-    structured array gal_arr."""
-
-    def __init__(self, infile, sel_dict, Q=0, chi2max=10, nqmin=3):
-        """Read selected objects from FITS table."""
-        global cosmo
-        zmin, zmax = par['zmin'], par['zmax']
-        self.Mmin = par['Mmin']
-        self.Mmax = par['Mmax']
-        self.Mbin = par['Mbin']
-        self.Mstep = float(self.Mmax - self.Mmin)/self.Mbin
-
-        hdulist = fits.open(infile)
-        header = hdulist[1].header
-        tbdata = hdulist[1].data
-        cols = hdulist[1].columns
-        par['H0'] = 100.0
-        par['omega_l'] = header['OMEGA_L']
-        par['z0'] = header['Z0']
-        par['area'] = header['AREA'] * (math.pi/180.0)**2
-        cosmo = util.CosmoLookup(par['H0'], par['omega_l'], (zmin, zmax))
-        print('H0, omega_l, z0, area/Sr = ',
-              par['H0'], par['omega_l'], par['z0'], par['area'])
-
-        try:
-            alpha = header['alpha']
-            sim = True
-            print 'Simulated data'
-        except:
-            sim = False
-
-        if 'IREAL' in cols.names:
-            mock = True
-            sel = ((tbdata['ireal'] == par['ireal']) *
-                   (tbdata['redshift_obs'] >= zmin) *
-                   (tbdata['redshift_obs'] < zmax))
-        else:
-            mock = False
-            sel = ((tbdata['survey_class'] > 3) *
-                   (tbdata['nq'] >= nqmin) *
-                   (tbdata['z_tonry'] >= zmin) *
-                   (tbdata['z_tonry'] < zmax))
-
-        # Apply other selection limits in sel_dict
-        for key, limits in sel_dict.iteritems():
-            print key, limits
-            sel *= ((tbdata[key] >= limits[0]) *
-                    (tbdata[key] < limits[1]))
-            par[key] = limits
-
-        # Exclude objects with suspect photometry
-        # pdb.set_trace()
-        if par['clean_photom']:
-            ncand = len(tbdata[sel])
-            sel *= ((tbdata['bn_objid'] < 0) *
-                    (np.fabs(tbdata['r_petro'] - tbdata['r_sersic']) <
-                    par['dmlim']))
-            nclean = len(tbdata[sel])
-            print nclean, 'out of', ncand, 'targets with clean photometry'
-
-        tbdata = tbdata[sel]
-        ngal = len(tbdata)
-        nk = tbdata['pcoeff_r'].shape[1]
-        gal_arr = np.zeros(
-            ngal,
-            dtype=[('cataid', 'int32'),
-                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
-                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
-                   ('ra', 'float32'), ('weight', 'float32'),
-                   ('kc', 'float32'), ('kcoeff', 'float32', nk),
-                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
-                   ])
-        if mock:
-            z = tbdata['redshift_obs']
-            gal_arr['cataid'] = 0
-            gal_arr['ra'] = tbdata['ra']
-            gal_arr['appval_sel'] = tbdata['SDSS_r_obs_app']
-            gal_arr['appval_lf'] = tbdata[par['param']]
-            gal_arr['z'] = z
-            gal_arr['kc'] = tbdata['kcorr_r']
-            gal_arr['kcoeff'] = tbdata['pcoeff_r']
-        else:
-            z = tbdata['z_tonry']
-            gal_arr['cataid'] = tbdata['cataid']
-            gal_arr['ra'] = tbdata['ra']
-            gal_arr['appval_sel'] = tbdata['r_petro']
-            gal_arr['appval_lf'] = tbdata[par['param']]
-            gal_arr['z'] = z
-            gal_arr['kc'] = tbdata['kcorr_r']
-            gal_arr['kcoeff'] = tbdata['pcoeff_r']
-
-        if par['kc_use_poly']:
-            gal_arr['kc'] = np.polynomial.polynomial.polyval(
-                z - par['z0'], gal_arr['kcoeff'].transpose(), tensor=False)
-        if sim:
-            # Reverse coeffs given in old (high -> low) order
-            gal_arr['kcoeff'] = gal_arr['kcoeff'][:, ::-1]
-
-        # Fit polynomial to median K(z) for good fits
-        good = np.isfinite(gal_arr['kc']) * (tbdata['chi2'] < chi2max)
-        zbin = np.linspace(par['zmin'], par['zmax'], 50) - par['z0']
-        k_array = np.polynomial.polynomial.polyval(
-            zbin, gal_arr['kcoeff'][good].transpose())
-        k_median = np.median(k_array, axis=0)
-        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
-
-        # Set any missing or bad k-corrs to median values
-        bad = np.logical_not(good)
-        nbad = len(z[bad])
-        if nbad > 0:
-            gal_arr['kc'][bad] = np.polynomial.polynomial.polyval(
-                z[bad] - par['z0'], self.kmean)
-            gal_arr['kcoeff'][bad] = self.kmean
-            print nbad, 'missing/bad k-corrections replaced with mean'
-            f = open('bad_kcorr.txt', 'w')
-            for ibad in xrange(nbad):
-                print >> f, gal_arr['cataid'][bad][ibad]
-            f.close()
-
-        gal_arr['absval_sel'] = (gal_arr['appval_sel'] - cosmo.dist_mod(z) -
-                                 gal_arr['kc'] + ecorr(z, Q))
-        gal_arr['absval_lf'] = (gal_arr['appval_lf'] - cosmo.dist_mod(z) -
-                                gal_arr['kc'] + ecorr(z, Q))
-
-        self.header = header
-        self.tbdata = tbdata
-        self.gal_arr = gal_arr
-        self.ngal = ngal
-        print ngal, 'galaxies selected'
-
-        # Completeness weight
-        # sb = (tbdata[('r_petro') + 2.5*lg2pi +
-        #                   5*np.log10(tbdata[('petror50_r')))
-        try:
-            sb = tbdata['r_sb']
-            imcomp = np.interp(sb, sb_tab, comp_tab)
-        except:
-            print 'No column r_sb; ignoring SB completeness'
-            imcomp = np.ones(ngal)
-        try:
-            r_fibre = tbdata['fibermag_r']
-            zcomp = z_comp(r_fibre)
-        except:
-            print 'No column fibermag_r; ignoring redshift completeness'
-            zcomp = np.ones(ngal)
-        self.gal_arr['weight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
-
-        # Read Vmax values if present
-        try:
-            self.Vmax_raw = tbdata['Vmax_raw']
-            self.Vmax_dc = tbdata['Vmax_dc']
-            self.Vmax_dec = tbdata['Vmax_dec']
-        except:
-            pass
-
-    def calc_limits(self, Q):
-        """Calculate absolute values and visibilty limits for each galaxy,
-        returning a view of gal_arr for galaxies within absolute limits."""
-
-        zmin, zmax = par['zmin'], par['zmax']
-        ngal = self.ngal
-        zlovis = zmin*np.ones(ngal)
-        zhivis = zmax*np.ones(ngal)
-        z = self.gal_arr['z']
-        sel = (z > 0)
-
-        kc = self.gal_arr['kc']
-        kcoeff = self.gal_arr['kcoeff']
-        self.gal_arr['absval_sel'] = (self.gal_arr['appval_sel'] - 
-                                      cosmo.dist_mod(z) - kc + ecorr(z, Q))
-        self.gal_arr['absval_lf'] = (self.gal_arr['appval_lf'] - 
-                                     cosmo.dist_mod(z) - kc + ecorr(z, Q))
-        self.gal_arr['zlo'] = map(
-            lambda i: zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i], 
-                          kcoeff[i], (zmin, zmax), Q), 
-            xrange(ngal))
-        self.gal_arr['zhi'] = map(
-            lambda i: zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i], 
-                          kcoeff[i], (zmin, zmax), Q), 
-            xrange(ngal))
-
-        # Galaxies within absolute limits
-        absm = self.gal_arr['absval_lf']
-        sel *= (par['Mmin'] <= absm) * (absm < par['Mmax'])
-
-        gala = self.gal_arr[sel]
-        if par['idebug'] > 1:
-            print len(gala), 'galaxies satisfy absolute limits'
-        return gala
-
-    def abs_bin(self, absval):
-        """Returns bin number and fraction for given absval, such that:
-        absval = absMin + (iabs+frac)*absStep."""
-        
-        absval = np.clip(absval, self.Mmin, self.Mmax)
-	iabs = np.floor((absval - self.Mmin)/self.Mstep).astype(np.int32)
-        iabs = np.clip(iabs, 0, self.Mbin - 1)
-        frac = (absval - (self.Mmin + iabs*self.Mstep))/self.Mstep
-        return iabs, frac
-
-    def subset(self, idx):
-        """Return subset of gala with given indices."""
-        subset = Sample(self.type, self.qty_list)
-        subset.gal_arr = self.gal_arr[idx]
-        subset.ngal = len(subset.gal_arr)
-        return subset
-
-    def resample(self):
-        """Bootstrap resampling"""
-        idx = np.random.randint(0, self.ngal, self.ngal)
-        return self.subset(idx)
-    
-    def jacknife(self, jack):
-        """Return a subsample with jacknife region jack omitted"""
-
-        idx = (self.gal_arr['ra'] < ra_jack[jack]) + (self.gal_arr['ra'] >= ra_jack[jack] + 4.0)
-        subset = self.subset(idx)
-        subset.area *= 8.0/9.0
-        return subset
 
 
 def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
@@ -4637,7 +4521,7 @@ def Nz_plot(param_list=(('All', (('ranz_colour_c.dat', 'k'),)),
     for param in param_list:
         label = param[0]
         ax = axes[ip]
-        ax.text(0.95, 0.8, label, ha='right', transform = ax.transAxes)
+        ax.text(0.95, 0.8, label, ha='right', transform=ax.transAxes)
 
         first = True
         for ranc in param[1]:
@@ -4645,12 +4529,12 @@ def Nz_plot(param_list=(('All', (('ranz_colour_c.dat', 'k'),)),
             info = eval(f.readline())
             f.close()
             data = np.loadtxt(ranc[0], skiprows=1)
-            ranhist, zbins = np.histogram(data[:,0], info['zbins'])
-            ranhist *= float(info['ngal'])/info['nran']
+            ranhist, zbins = np.histogram(data[:, 0], info['zbins'])
+            ranhist_norm = ranhist * float(info['ngal'])/info['nran']
             if first:
                 ax.step(info['zcen'], info['galhist'], where='mid')
                 first = False
-            ax.plot(info['zcen'], ranhist, ranc[1])
+            ax.plot(info['zcen'], ranhist_norm, ranc[1])
         PQlab = r'$P = {:4.1f}, Q = {:4.1f}$'.format(info['P'], info['Q'])
         # ax.text(0.95, 0.6, PQlab, ha='right', transform = ax.transAxes)
         # Avoid overlapping tick labels
@@ -4738,8 +4622,7 @@ def weight_hist(infile='kcorrz01.fits', outfile='weights.fits', nbins=50,
     # Main targets with reliable redshifts
     sel = ((tbdata.field('survey_class') > 3) *
            (tbdata.field('nq') > 2) * (tbdata.field('z') > 0.002) *
-           (tbdata.field('r_petro') < 19.8) *
-           ((tbdata.field('vis_class') < 2) + (tbdata.field('vis_class') > 5)))
+           (tbdata.field('r_petro') < 19.8))
     tbdata = tbdata[sel]
     cataid = tbdata.field('cataid')
     sb = tbdata.field('r_sb')
