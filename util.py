@@ -11,7 +11,7 @@ import scipy.optimize
 import scipy.stats
 import subprocess
 
-from astLib import astCalc
+#from astLib import astCalc
 from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
 
