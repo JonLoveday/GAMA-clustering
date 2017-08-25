@@ -97,18 +97,21 @@ def ran_dist(x, p, nran):
     """Generate nran random points according to distribution p(x)"""
 
     if np.amin(p) < 0:
-        print 'ran_dist warning: pdf contains negative values!'
+        print('ran_dist warning: pdf contains negative values!')
     cp = np.cumsum(p)
     y = (cp - cp[0]) / (cp[-1] - cp[0])
     r = np.random.random(nran)
     return np.interp(r, y, x)
 
 
-def ran_fun(f, xmin, xmax, nran, args=(), nbin=1000):
+def ran_fun(f, xmin, xmax, nran, args=None, nbin=1000):
     """Generate nran random points according to pdf f(x)"""
 
     x = np.linspace(xmin, xmax, nbin)
-    p = f(x, *args)
+    if args:
+        p = f(x, *args)
+    else:
+        p = f(x)
     return ran_dist(x, p, nran)
 
 
@@ -150,7 +153,8 @@ def ran_fun_test():
     xr, yr = ran_fun2(fun, -5, 5, -5, 5, 10000, pplot=True)
     plt.scatter(xr, yr, 0.1, c='w')
     plt.draw()
-    
+
+
 def smooth(x, window_len=10, window='hanning'):
     """smooth the data using a window with requested size.
     
@@ -184,16 +188,16 @@ def smooth(x, window_len=10, window='hanning'):
     """
 
     if x.ndim != 1:
-        raise ValueError, "smooth only accepts 1 dimension arrays."
+        raise ValueError("smooth only accepts 1 dimension arrays.")
 
     if x.size < window_len:
-        raise ValueError, "Input vector needs to be bigger than window size."
+        raise ValueError("Input vector needs to be bigger than window size.")
 
     if window_len < 3:
         return x
 
     if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
-        raise ValueError, "Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'"
+        raise ValueError("Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
 
     s=np.r_[2*x[0]-x[window_len:1:-1], x, 2*x[-1]-x[-1:-window_len:-1]]
     #print(len(s))
@@ -300,7 +304,7 @@ def poisson_probability(actual, mean):
 
     # iterative, to keep the components from getting too large or small:
     p = math.exp(-mean)
-    for i in xrange(actual):
+    for i in range(actual):
         p *= mean
         p /= i+1
     return p
@@ -405,7 +409,7 @@ def vol_limits(infile=gama_data+'kcorr_auto_z01.fits',  mlim=19.8, Q=0.81,
     kc = tbdata.field('kcorr_r')
     hdulist.close()
 
-    print 'mag range', np.min(mag), np.max(mag)
+    print('mag range', np.min(mag), np.max(mag))
     Mabs = mag - cosmo.dist_mod(z) - kc + Q*(z-z0)
     plt.clf()
     if kplot:
@@ -434,16 +438,18 @@ def vol_limits(infile=gama_data+'kcorr_auto_z01.fits',  mlim=19.8, Q=0.81,
                 lambda z: Mvol(z) - Mlim, zrange[0], zrange[1],
                 xtol=1e-5, rtol=1e-5)
         z_list.append(zlim)
-        print Mlim, zlim
+        print(Mlim, zlim)
         ax.plot((zrange[0], zlim, zlim), (Mlim, Mlim, Mrange[1]))
     plt.show()
     return z_list
 
-def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,
+
+def schec_fit(M, phi, phi_err, schec_par, sigma=0,
               afix=False, likeCont=False, loud=False):
     """Least-squares Schechter fn fit to binned estimate.
     If sigma > 0, fit Schechter fn convolved with Gaussian."""
 
+    alpha, Mstar, lpstar = schec_par
     prob = 0.32
     nbin = len(phi_err > 0)
     if afix:
@@ -452,12 +458,12 @@ def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,
         nu = nbin - 3
     dchisq = scipy.special.chdtri(nu, prob)
     if loud:
-        print nu, dchisq
+        print(nu, dchisq)
 
     if afix:
         x0 = [Mstar, lpstar]
         res = scipy.optimize.fmin(
-            lambda (Mstar, lpstar), alpha, M, phi, phi_err, sigma:
+            lambda Mstar, lpstar, alpha, M, phi, phi_err, sigma:
             schec_resid((alpha, Mstar, lpstar), M, phi, phi_err, sigma),
             x0, (alpha, M, phi, phi_err, sigma),
             xtol=0.001, ftol=0.001, full_output=1, disp=0)
@@ -475,28 +481,28 @@ def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,
         alpha = xopt[0]
         Mstar = xopt[1]
         lpstar = xopt[2]
-        alpha_err = like_err(lambda (Mstar, lpstar), alpha, M, phi, phi_err, sigma:
+        alpha_err = like_err(lambda Mstar, lpstar, alpha, M, phi, phi_err, sigma:
                            schec_resid((alpha, Mstar, lpstar), M, phi, phi_err, sigma),
                            alpha, limits=(alpha-5, alpha+5),
                            marg=(Mstar, lpstar), args=(M, phi, phi_err, sigma),
                            nsig=2*dchisq)
         if loud:
-            print '  alpha %6.2f - %6.2f + %6.2f' % (alpha, alpha_err[0], alpha_err[1])
+            print('  alpha %6.2f - %6.2f + %6.2f' % (alpha, alpha_err[0], alpha_err[1]))
         
-    Mstar_err = like_err(lambda (lpstar), Mstar, alpha, M, phi, phi_err, sigma:
+    Mstar_err = like_err(lambda lpstar, Mstar, alpha, M, phi, phi_err, sigma:
                        schec_resid((alpha, Mstar, lpstar), M, phi, phi_err, sigma),
                        Mstar, limits=(Mstar-5, Mstar+5),
                        marg=(lpstar), args=(alpha, M, phi, phi_err, sigma),
                        nsig=2*dchisq)
-    lpstar_err = like_err(lambda (Mstar), lpstar, alpha, M, phi, phi_err, sigma:
+    lpstar_err = like_err(lambda Mstar, lpstar, alpha, M, phi, phi_err, sigma:
                         schec_resid((alpha, Mstar, lpstar), M, phi, phi_err, sigma),
                         lpstar, limits=(lpstar-5, lpstar+5),
                         marg=(Mstar), args=(alpha, M, phi, phi_err, sigma),
                         nsig=2*dchisq)
     
     if loud:
-        print '  Mstar %6.2f - %6.2f + %6.2f' % (Mstar, Mstar_err[0], Mstar_err[1])
-        print 'lpstar %6.4f - %6.4f + %6.4f' % (lpstar, lpstar_err[0], lpstar_err[1])
+        print('  Mstar %6.2f - %6.2f + %6.2f' % (Mstar, Mstar_err[0], Mstar_err[1]))
+        print('lpstar %6.4f - %6.4f + %6.4f' % (lpstar, lpstar_err[0], lpstar_err[1]))
     res = {'alpha': alpha, 'alpha_err': alpha_err, 
            'Mstar': Mstar, 'Mstar_err': Mstar_err, 
            'lpstar': lpstar, 'lpstar_err': lpstar_err, 
@@ -504,11 +510,11 @@ def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,
 
     if likeCont:
         if loud:
-            print "M*, phi* 2-sigma contours ..."
+            print("M*, phi* 2-sigma contours ...")
         prob = 0.05
         nu = len(phi_err > 0) # no free parameters
         dchisq = scipy.special.chdtri(nu, prob)
-        print nu, dchisq
+        print(nu, dchisq)
         nstep = 32
         chi2map = np.zeros([nstep, nstep])
 
@@ -532,9 +538,10 @@ def schec_fit(M, phi, phi_err, (alpha, Mstar, lpstar), sigma=0,
                     'limits': [xmin, xmax, ymin, ymax]})
     return res
         
-def schec_resid((alpha, Mstar, lpstar), M, phi, phi_err, sigma=0):
+def schec_resid(dchec_par, M, phi, phi_err, sigma=0):
     """Return chi^2 residual between binned phi estimate and Schechter fit."""
 
+    alpha, Mstar, lpstar = schec_par
     fit = Schechter(M, alpha, Mstar, 10**lpstar)
     if sigma > 0:
         scale = sigma/np.mean(np.diff(M))
@@ -560,7 +567,7 @@ def Schechter(M, alpha, Mstar, phistar):
     schec = 0.4*ln10*phistar*L**(alpha+1)*np.exp(-L)
     return schec
 
-def saund_fit(M, phi, phiErr, (alpha, Mstar, sigma, lpstar)):
+def saund_fit(M, phi, phiErr, alpha, Mstar, sigma, lpstar):
     """Least-squares Saunders fn fit to binned estimate."""
 
     x0 = [alpha, Mstar, sigma, lpstar]
@@ -576,7 +583,7 @@ def saund_fit(M, phi, phiErr, (alpha, Mstar, sigma, lpstar)):
                  'lpstar': lpstar, 'chi2': chi2, 'nu': len(M)-4}
     return saund_par
         
-def saund_resid((alpha, Mstar, sigma, lpstar), M, phi, phiErr):
+def saund_resid(alpha, Mstar, sigma, lpstar, M, phi, phiErr):
     """Return chi^2 residual between binned phi estimate and Saunders fit."""
 
     fc = 0
