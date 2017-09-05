@@ -28,7 +28,7 @@ def groups_gen(zlimits=(0.002, 0.1), nfac=10):
     galxs = gs.GalSample(zlimits=zlimits)
     galxs.read_gama()
     galxs.vis_calc()
-    galxs.add_vmax()
+    galxs.vmax_calc()
     cu.xi_sel(galxs, 'gal.dat', 'gal_ran.dat', '',
               nfac, set_vmax=False,
               mask=gama_data+'/mask/zcomp.ply', run=0)
@@ -153,6 +153,44 @@ def plots(key='w_p', binning=1, pi_lim=100, rp_lim=100):
     xi0.plot(ax, label='dpx')
     xi1.plot(ax, label='lsx')
     xi2.plot(ax, label='lsx2r')
+    ax.loglog(basex=10, basey=10, nonposy='clip')
+    plt.legend()
+    plt.xlabel(r'$r_\perp$')
+    plt.ylabel(r'$w_p(r_\perp)$')
+    plt.draw()
+
+
+def bin_plots(key='w_p', binning=1, pi_lim=100, rp_lim=100, nbin=4):
+    """Plot the binned correlations."""
+
+    xi_list = []
+    for i in range(nbin):
+
+        gg = cu.PairCounts('gg_gal_gal.dat')
+        Gg = cu.PairCounts('gg_gal_grp{0}.dat'.format(i))
+        GG = cu.PairCounts('gg_grp{0}_grp{0}.dat'.format(i))
+
+        gr = cu.PairCounts('gr_gal_gal.dat')
+        gR = cu.PairCounts('gr_gal_grp{0}.dat'.format(i))
+        Gr = cu.PairCounts('gr_grp{0}_gal.dat'.format(i))
+        GR = cu.PairCounts('gr_grp{0}_grp{0}.dat'.format(i))
+
+        rr = cu.PairCounts('rr_gal_gal.dat')
+        Rr = cu.PairCounts('rr_gal_grp{0}.dat'.format(i))
+        RR = cu.PairCounts('rr_grp{0}_grp{0}.dat'.format(i))
+
+        counts = {'gg': gg, 'Gg': Gg, 'GG': GG,
+                  'gr': gr, 'gR': gR, 'Gr': Gr, 'GR': GR,
+                  'rr': rr, 'Rr': Rr, 'RR': RR}
+        xi = cu.Xi()
+        xi_est = xi.est(counts, cu.lsx2r, key=key, binning=binning,
+                        pi_lim=pi_lim, rp_lim=rp_lim)
+        xi_list.append(xi_est)
+
+    plt.clf()
+    ax = plt.subplot(111)
+    for xi, label in zip(xi_list, [0, 1, 2, 3]):
+        xi.plot(ax, label='M{}'.format(label))
     ax.loglog(basex=10, basey=10, nonposy='clip')
     plt.legend()
     plt.xlabel(r'$r_\perp$')

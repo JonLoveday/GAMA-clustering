@@ -225,7 +225,7 @@ class GalSample():
             for key, limits in sel_dict.items():
                 print(key, limits)
                 use *= ((t[key] >= limits[0]) * (t[key] < limits[1]))
-            t['use'] = use
+        t['use'] = use
         nsel = len(t[t['use']])
         print(nsel, 'out of', nin, 'galaxies selected')
 
@@ -384,7 +384,8 @@ class GalSample():
         plt.show()
 
         plt.clf()
-        plt.scatter(z[show], sfr[show], s=0.01, c=clr[show], edgecolors='face')
+        plt.scatter(z[show], s['sfr'][show], s=0.01, c=clr[show],
+                    edgecolors='face')
         plt.axis([0, 0.35, 5e-3, 500])
         plt.xlabel(r'$z$l')
         plt.ylabel(r'SFR')
@@ -406,12 +407,16 @@ class GalSample():
         nz = den_table.meta['NZ']
         zmin = den_table.meta['ZMIN']
         zmax = den_table.meta['ZMAX']
+        H0 = den_table.meta['H0']
+        omega_l = den_table.meta['OMEGA_L']
+        cosmo = CosmoLookup(H0, omega_l, (zmin, zmax))
 
         zhist, bin_edges = np.histogram(self.t['z'], nz, (zmin, zmax),
                                         weights=self.t['cweight'])
         zstep = bin_edges[1] - bin_edges[0]
-        V_int = self.area / 3.0 * self.cosmo.dm(bin_edges)**3
+        V_int = self.area / 3.0 * cosmo.dm(bin_edges)**3
         V = np.diff(V_int)
+#        pdb.set_trace()
 
         # Arrays S_obs and S_vis contain volume-weighted fraction of
         # redshift bin iz in which galaxy igal lies and is visible.
