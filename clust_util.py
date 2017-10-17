@@ -76,10 +76,11 @@ def xtest(Mlim=(-21, -20.5, -20.45), key='w_p', binning=1, nfac=1,
     samp.add_vmax()
     sel_dict = {selcol: (Mlim[0], Mlim[1])}
     xi_sel(samp, 'gal1.dat', 'ran1.dat', '', nfac, sel_dict=sel_dict,
-           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0)
+           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=False)
     sel_dict = {selcol: (Mlim[1], Mlim[2])}
+    samp.vol_limit(Mlim[2])  # 2nd sample is now volume-limited
     xi_sel(samp, 'gal2.dat', 'ran2.dat', '', nfac, sel_dict=sel_dict,
-           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0)
+           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=False)
 
     cmd = xi_cmd + 'gal1.dat gg_1_1.dat'
     subprocess.call(cmd, shell=True)
@@ -144,7 +145,7 @@ def xtest(Mlim=(-21, -20.5, -20.45), key='w_p', binning=1, nfac=1,
 
 def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
            mask=gama_data+'/mask/zcomp.ply', run=0, binning=def_binning,
-           theta_max=def_theta_max, maxran=1000000):
+           theta_max=def_theta_max, maxran=1000000, J3wt=True):
     """Output selected galaxy and random samples for xi.c."""
 
     samp.t['den'] = np.zeros(len(samp.t))
@@ -169,7 +170,10 @@ def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
                 samp.vol_ev, samp.zlimits[0], samp.zlimits[1], nran)
         rancat.t['den'] = np.zeros(nran)
     else:
-        J3_pars = def_J3_pars
+        if J3wt:
+            J3_pars = def_J3_pars
+        else:
+            J3_pars = (0, 0, 0)
         ndupe = np.array(np.round(
                 nfac*ts['Vmax_raw'] / ts['Vmax_dec']).astype(np.int32))
 

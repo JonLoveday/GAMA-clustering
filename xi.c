@@ -24,7 +24,9 @@ Revision history
 	       Count pairs in both log and linear rp bins.
 2.2 15-sep-15  For efficiency and flexibility, calculate only one of DD, DR, RR.
 2.3 17-jun-16  Add log-log binned counts; rename variables and make more global.
-
+2.4 16-oct-17  Allow two catalogues to have independent J3-weighting, to allow, 
+               for example, for cross-correlation of a volume-limited sample 
+	       with a flux-limited one.
 */
 
 #include <stdlib.h>
@@ -43,30 +45,35 @@ typedef struct cell {
   OBJ *obj;
 } CELL;
 
-int autoCorr(int ncell, CELL *cell);
+typedef struct j3par {
+  float gamma, r0, rmax;
+} J3PAR;
 
-int crossCorr(int ncell, CELL *galcell, int ncellr, CELL *rancell);
+int autoCorr(int ncell, CELL *cell, J3PAR *J3gal);
 
-int countSep(OBJ obj1, OBJ obj2);
+int crossCorr(int ncell, CELL *galcell, J3PAR *J3gal,
+	      int ncellr, CELL *rancell, J3PAR *J3ran);
 
-double minVarWt(double s, double den);
+int countSep(OBJ obj1, OBJ obj2, J3PAR *J31, J3PAR *J32);
+
+double minVarWt(double s, double den, J3PAR *J3);
 
 /* Global variables */
 int nlog, nlin, njack;
-float logmin, logmax, logstep, linmin, linmax, linstep, xmax, theta_max,
-  J3_gamma, J3_r0, J3_rmax;
+float logmin, logmax, logstep, linmin, linmax, linstep, xmax, theta_max;
 double *pc_log, *s_log, *pc_lin_lin, *pc_log_lin, *pc_log_log, 
   *rp_lin_lin, *rp_log_lin, *rp_log_log, *pi_lin_lin, *pi_log_lin, *pi_log_log;
 
 int main(int argc, char *argv[])
 {
-  const char *ver = "xi 2.3";
+  const char *ver = "xi 2.4";
   char *cmd = "Usage: xi <infile> <outfile> OR xi <infile> <ranfile> <outfile>";
 
   CELL *galcell, *rancell;
+  J3PAR *J3gal, *J3ran;
   int ngal, nran=0, nobj, nc, ncr, ncell, ncellr, icell, ix, iy, iz, 
     ijack, njackr, i, j, k, ibin, ireg;
-  float x, y, z, weight, den, Vmax, cellsize, cellsizer;
+  float x, y, z, weight, den, Vmax, cellsize, cellsizer, gamma, r0, rmax;
   const int nameLength = 80, infoLength=512;
   char inFile[80], ranFile[80], outFile[80], 
     info_gal[infoLength], info_ran[infoLength], line[infoLength];
@@ -95,8 +102,14 @@ int main(int argc, char *argv[])
   fgets(line, infoLength, file);
   sscanf(line, "%d %d %d %d %f %f %f %d %f %f %d %f %f %f %f", 
 	 &ngal, &nc, &ncell, &njack, &cellsize, &logmin, &logmax, &nlog,
-	 &linmin, &linmax, &nlin, &theta_max, &J3_gamma, &J3_r0, &J3_rmax);
+	 &linmin, &linmax, &nlin, &theta_max,
+	 &gamma, &r0, &rmax);
   theta_max *= M_PI/180.0;
+  J3gal = malloc(sizeof(J3PAR));
+  J3gal->gamma = gamma;
+  J3gal->r0 = r0;
+  J3gal->rmax = rmax;
+  
   galcell = malloc(ncell*sizeof(CELL));
   ngal = 0;
   for (icell = 0; icell < ncell; icell++) {
@@ -138,15 +151,24 @@ int main(int argc, char *argv[])
       printf("Error opening %s\n", ranFile);
       return 1;
     }
+    J3ran = malloc(sizeof(J3PAR));
     fgets(info_ran, infoLength, file);
     fgets(line, infoLength, file);
-    sscanf(line, "%d %d %d %d %f", &nran, &ncr, &ncellr, &njackr, &cellsizer);
+    sscanf(line, "%d %d %d %d %f %f %f %d %f %f %d %f %f %f %f",
+	   &nran, &ncr, &ncellr, &njackr, &cellsizer,
+	   &logmin, &logmax, &nlog,
+	   &linmin, &linmax, &nlin, &theta_max,
+	   &gamma, &r0, &rmax);
 
     if (cellsize != cellsizer || njack != njackr) {
       printf("Galaxy and random cellsizes %f %f or jacknife regions %d %d differ!\n", cellsize, cellsizer, njack, njackr);
       return 1;
     }
 
+    J3ran = malloc(sizeof(J3PAR));
+    J3ran->gamma = gamma;
+    J3ran->r0 = r0;
+    J3ran->rmax = rmax;
     rancell = malloc(ncellr*sizeof(CELL));
 /*   for (icell = 0; icell < ncell; icell++) { */
     nran = 0;
@@ -210,9 +232,9 @@ int main(int argc, char *argv[])
 
   printf("counting pairs ...\n");
   if (argc == 4) {
-    crossCorr(ncell, galcell, ncellr, rancell);
+    crossCorr(ncell, galcell, J3gal, ncellr, rancell, J3ran);
   } else {
-    autoCorr(ncell, galcell);
+    autoCorr(ncell, galcell, J3gal);
   }
 
   for (i = 0; i < nlog; i++) {
@@ -316,21 +338,23 @@ int main(int argc, char *argv[])
     free(galcell[icell].obj);
   }
   free(galcell);
+  free(J3gal);
   if (argc == 4) {
     for (icell = 0; icell < ncellr; icell++) {
       free(rancell[icell].obj);
     }
     free(rancell);
+    free(J3ran);
   }
   free(pc_log); free(pc_log_lin); free(pc_lin_lin); 
   free(s_log); free(rp_lin_lin); free(rp_log_lin); free(rp_log_log); 
   free(pi_lin_lin); free(pi_log_lin); free(pi_log_log); 
-
+  
   return 0;
 }
 
 /* Auto-correlation (count forwards only).  */
-int autoCorr(int ncell, CELL *cell)
+int autoCorr(int ncell, CELL *cell, J3PAR *J3gal)
 {
   int i, j, icell, jcell;
   double sep;
@@ -341,7 +365,7 @@ int autoCorr(int ncell, CELL *cell)
     for (i = 0; i < cell[icell].nobj; i++) {
       j = i + 1;
       while (j < cell[icell].nobj) {
-	sep = countSep(cell[icell].obj[i], cell[icell].obj[j]);
+	sep = countSep(cell[icell].obj[i], cell[icell].obj[j], J3gal, J3gal);
 	j++;
       }
     }
@@ -353,7 +377,7 @@ int autoCorr(int ncell, CELL *cell)
 	  abs(cell[icell].iz - cell[jcell].iz) < 2) {
 	for (i = 0; i < cell[icell].nobj; i++) {
 	  for (j = 0; j < cell[jcell].nobj; j++) {
-	    sep = countSep(cell[icell].obj[i], cell[jcell].obj[j]);
+	    sep = countSep(cell[icell].obj[i], cell[jcell].obj[j], J3gal, J3gal);
 	  }
 	}
       }
@@ -363,7 +387,8 @@ int autoCorr(int ncell, CELL *cell)
 }
 
 /* Cross-correlation (count both directions). */
-int crossCorr(int ncell, CELL *galcell, int ncellr, CELL *rancell)
+int crossCorr(int ncell, CELL *galcell, J3PAR *J3gal,
+	      int ncellr, CELL *rancell, J3PAR *J3ran)
 {
   int i, j, icell, jcell;
   double sep;
@@ -375,7 +400,8 @@ int crossCorr(int ncell, CELL *galcell, int ncellr, CELL *rancell)
 	  abs(galcell[icell].iz - rancell[jcell].iz) < 2) {
 	for (i = 0; i < galcell[icell].nobj; i++) {
 	  for (j = 0; j < rancell[jcell].nobj; j++) {
-	    sep = countSep(galcell[icell].obj[i], rancell[jcell].obj[j]);
+	    sep = countSep(galcell[icell].obj[i], rancell[jcell].obj[j],
+			   J3gal, J3ran);
 	  }
 	}
       }
@@ -387,7 +413,7 @@ int crossCorr(int ncell, CELL *galcell, int ncellr, CELL *rancell)
 /* Calculate separation between two points and increment weighted pair
    counts wp1 (direction-averaged) and wp2 (parallel and perpendicular). */
 
-int countSep(OBJ obj1, OBJ obj2)
+int countSep(OBJ obj1, OBJ obj2, J3PAR *J31, J3PAR *J32)
 {
   int ibin, irp, ipi, ijack;
   double dx, dy, dz, lx, ly, lz, lnorm, dsq, sep,
@@ -403,8 +429,8 @@ int countSep(OBJ obj1, OBJ obj2)
     s = sqrt(dsq);
     sep = log10(s);
     V = obj1.Vmax < obj2.Vmax ? obj1.Vmax : obj2.Vmax;
-    pairwt = obj1.weight * minVarWt(s, obj1.den) * 
-      obj2.weight* minVarWt(s, obj2.den) / V;
+    pairwt = obj1.weight * minVarWt(s, obj1.den, J31) * 
+      obj2.weight* minVarWt(s, obj2.den, J32) / V;
     if (sep >= logmin && sep < logmax) {
       ibin = (int) floor((sep - logmin)/logstep);
       if (ibin >= 0 && ibin < nlog) {
@@ -474,11 +500,11 @@ int countSep(OBJ obj1, OBJ obj2)
 }
 
 /* Minimumm variance weight */
-double minVarWt(double s, double den)
+double minVarWt(double s, double den, J3PAR *J3)
 {
-  double ss, J3;
-  if (J3_gamma <= 0.1) return 1.0;
-  ss = s < J3_rmax ? s : J3_rmax;
-  J3 = pow(J3_r0,J3_gamma) / (3-J3_gamma) * pow(ss,3-J3_gamma);
-  return 1.0 / (1 + 4*M_PI*den*J3);
+  double ss, J3val;
+  if (J3->gamma <= 0.1) return 1.0;
+  ss = s < J3->rmax ? s : J3->rmax;
+  J3val = pow(J3->r0,J3->gamma) / (3-J3->gamma) * pow(ss,3-J3->gamma);
+  return 1.0 / (1 + 4*M_PI*den*J3val);
 }
