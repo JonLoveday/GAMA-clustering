@@ -76,11 +76,11 @@ def xtest(Mlim=(-21, -20.5, -20.45), key='w_p', binning=1, nfac=1,
     samp.add_vmax()
     sel_dict = {selcol: (Mlim[0], Mlim[1])}
     xi_sel(samp, 'gal1.dat', 'ran1.dat', '', nfac, sel_dict=sel_dict,
-           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=False)
+           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=True)
     sel_dict = {selcol: (Mlim[1], Mlim[2])}
-    samp.vol_limit(Mlim[2])  # 2nd sample is now volume-limited
+#    samp.vol_limit(Mlim[2])  # 2nd sample is now volume-limited
     xi_sel(samp, 'gal2.dat', 'ran2.dat', '', nfac, sel_dict=sel_dict,
-           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=False)
+           set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=True)
 
     cmd = xi_cmd + 'gal1.dat gg_1_1.dat'
     subprocess.call(cmd, shell=True)

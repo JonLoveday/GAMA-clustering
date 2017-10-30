@@ -276,6 +276,17 @@ class GalSample():
         sel = t_by_group['Nmem'] >= nmin
         self.t = t_by_group[sel]
 
+    def stellar_mass(self, fluxscale=0):
+        """Read stellar masses for GAMA."""
+
+        m = Table.read(os.environ['GAMA_DATA'] + 'StellarMassesv19.fits')
+        m['logmstar'] -= 2*math.log10(self.H0/70.0)
+        if fluxscale:
+            m['logmstar'] += np.log10(m['fluxscale'])
+        m = m['CATAID', 'logmstar']
+        self.t = join(self.t, m, keys='CATAID',
+                      metadata_conflicts=metadata_conflicts)
+
     def specline_props(self, infile='GaussFitSimplev05.fits', snt=3):
         """Add SpecLineSFR DMU properties.
         Classify galaxies according to BPT: unknown, quiescent, starforming,
