@@ -14,6 +14,7 @@ import subprocess
 
 import clust_util as cu
 import gal_sample as gs
+import util
 
 gama_data = os.environ['GAMA_DATA']
 mass_bins = (12, 13, 13.5, 14, 16)
@@ -38,6 +39,7 @@ def groups_gen(zlimits=(0.002, 0.1), nfac=10):
     groups.cosmo = galxs.cosmo
     groups.area = galxs.area
     groups.read_gama_groups()
+
     cu.xi_sel(groups, 'grp.dat', 'grp_ran.dat', '',
               nfac, set_vmax=False,
               mask=gama_data+'/mask/zcomp.ply', run=0)

@@ -24,6 +24,32 @@ def lfr(outfile='lfr.dat',
     lf.plot(finish=True)
 
 
+def smf(outfile='smf.dat',
+        colname='logmstar', Mmin=6, Mmax=12, nbin=24, zmin=0.002, zmax=0.65,
+        clean_photom=1, use_wt=1):
+    """Stellar mass function using density-corrected Vmax."""
+
+    samp = gs.GalSample()
+    samp.read_gama()
+    samp.stellar_mass()
+    samp.add_vmax()
+    lf = LF(samp.tsel(), colname, Mmin=Mmin, Mmax=Mmax, nbin=nbin)
+    lf.plot(finish=True)
+
+
+def blf_test(outfile='blf.dat',
+             cols=('ABSMAG_R', 'logmstar'), arange=((-25, -12), (6, 12)),
+             bins=(13, 12), zmin=0.002, zmax=0.65, clean_photom=1, use_wt=1):
+    """Mr-stellar mass bivariate function using density-corrected Vmax."""
+
+    samp = gs.GalSample()
+    samp.read_gama()
+    samp.stellar_mass()
+    samp.add_vmax()
+    lf = LF2(samp.tsel(), cols, bins, arange)
+    lf.plot(finish=True)
+
+
 def group_lf(mbins=(12.00, 12.34, 12.68, 13.03, 13.37, 13.71, 14.05),
              mdbins=(12, 14, 14.5, 15, 16.5),
              ndbins=(1, 1.8, 2.2, 2.5, 5), nmin=5, nmax=500, edge_min=0.9,
@@ -253,6 +279,58 @@ class LF():
             ax.semilogy(basey=10, nonposy='clip')
             ax.set_xlabel(r'$M_r$')
             ax.set_ylabel(r'$\phi$')
+            plt.show()
+
+
+class LF2():
+    """Bivariate LF data and methods."""
+
+    def __init__(self, t, cols, bins, arange, norm=1, Vmax='Vmax_dec'):
+        """Initialise new LF instance from specified table and column."""
+
+        self.cols, self.bins, self.arange = cols, bins, arange
+        wt = t['cweight']/t[Vmax]
+        self.phi, xedges, yedges = np.histogram2d(
+                t[cols[0]], t[cols[1]], bins, arange, weights=wt)
+        self.Mbin1 = xedges[:-1] + 0.5*np.diff(xedges)
+        self.Mbin2 = yedges[:-1] + 0.5*np.diff(yedges)
+        binsize = (xedges[1] - xedges[0]) * (yedges[1] - yedges[0])
+        self.phi *= norm/binsize
+
+        # Jackknife errors
+        njack = gs.njack
+        self.njack = njack
+        self.phi_jack = np.zeros((njack, bins[0], bins[1]))
+        for jack in range(njack):
+            idx = t['jack'] != jack
+            self.phi_jack[jack, :, :], xedges, yedges = np.histogram2d(
+                t[cols[0]][idx], t[cols[1]][idx], bins, arange, weights=wt[idx])
+            self.phi_jack[jack, :, :] *= float(njack)/(njack-1)/binsize
+        self.phi_err = norm*np.sqrt((njack-1) * np.var(self.phi_jack, axis=0))
+
+    def write(self, f, label):
+        """Output to specified file."""
+        print('# ', label, file=f)
+        for i in range(len(self.Mbin)):
+            print(self.Mbin[i], self.phi[i], self.phi_err[i], file=f)
+
+    def plot(self, ax=None, label=None, vmin=-6, vmax=-1.5, finish=1):
+        """Plot bivariate LF."""
+
+        if ax is None:
+            plt.clf()
+            ax = plt.subplot(111)
+        extent = self.arange[0] + self.arange[1]
+        log_phi = np.log10(self.phi.T)
+        log_phi = np.ma.array(log_phi, mask=np.isnan(log_phi))
+        plt.imshow(log_phi, aspect='auto', origin='lower',
+                   extent=extent, interpolation='nearest',
+                   vmin=vmin, vmax=vmax)
+        cb = plt.colorbar()
+        cb.set_label(r'$\log_{10} \phi$')
+        if finish:
+            ax.set_xlabel(self.cols[0])
+            ax.set_ylabel(self.cols[1])
             plt.show()
 
 

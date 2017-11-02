@@ -149,44 +149,7 @@ class GalSample():
         """Read data for GAMA group centres.  Group visibility limits and Vmax
         correspond to that of nmin'th ranked member."""
 
-        # First create joined table of group members and visibility data
-        # Set zlimits after reading galxs but before vis_calc,
-        # as some group members may be beyond group itercen redshift
-        tc = GalSample()
-        tc.read_gama(nq_min=2)
-        tc.zlimits = self.zlimits
-        tc.vis_calc()
-        tc.vmax_calc()
-
-        gmem = Table.read(g3cgal)
-        g = join(gmem, tc.t, keys='CATAID', join_type='left',
-                 metadata_conflicts=metadata_conflicts)
-        gg = g.group_by('GroupID')
-        idxs = gg.groups.indices
-        Nmem = {}
-        grp_zlo = {}
-        grp_zhi = {}
-        grp_vmax_raw = {}
-        grp_vmax_dec = {}
-#        cataid = {}
-        for igrp in range(len(gg.groups)):
-            ilo = idxs[igrp]
-            ihi = idxs[igrp+1]
-            grpid = gg['GroupID'][ilo]
-            if grpid > 0:
-#                if grpid == 200080:
-#                    pdb.set_trace()
-                nmem = len(gg.groups[igrp])
-                if nmem >= nmin:
-                    Nmem[grpid] = nmem
-                    idxsort = np.argsort(gg['ABSMAG_R'][ilo:ihi])
-                    grp_zlo[grpid] = gg['zlo'][ilo:ihi][idxsort][nmin-1]
-                    grp_zhi[grpid] = gg['zhi'][ilo:ihi][idxsort][nmin-1]
-                    grp_vmax_raw[grpid] = gg['Vmax_raw'][ilo:ihi][idxsort][nmin-1]
-                    grp_vmax_dec[grpid] = gg['Vmax_dec'][ilo:ihi][idxsort][nmin-1]
-#                    cataid[grpid] = gg['CATAID'][idxsort][nmin-1]
-
-        # Read group data and add required info
+        # Read and select groups meeting selection criteria
         t = Table.read(g3cfof)
         t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
         sel = (np.array(t['GroupEdge'] > edge_min) *
@@ -194,26 +157,41 @@ class GalSample():
                np.array(t['Nfof'] >= nmin) *
                np.array(t['IterCenZ'] >= self.zlimits[0]) *
                np.array(t['IterCenZ'] < self.zlimits[1]))
-        t = t[sel]
+        grps = t[sel]
+        grps.rename_column('IterCenRA', 'RA')
+        grps.rename_column('IterCenDec', 'DEC')
+        grps.rename_column('IterCenZ', 'z')
+        grps = grps['GroupID', 'Nfof', 'RA', 'DEC', 'z', 'log_mass']
 
-        self.t = t['GroupID', 'IterCenRA', 'IterCenDec', 'IterCenZ', 'log_mass']
-        self.t.rename_column('IterCenRA', 'RA')
-        self.t.rename_column('IterCenDec', 'DEC')
-        self.t.rename_column('IterCenZ', 'z')
+        # Obtain CATAID of nmin'th brightest member of each group
+        gmem = Table.read(g3cgal)
+        gmem = gmem['GroupID', 'CATAID', 'Rpetro']
+        g = join(grps, gmem, keys='GroupID',
+                 metadata_conflicts=metadata_conflicts)
+        gg = g.group_by('GroupID')
+        idxs = gg.groups.indices
+        grps['CATAID'] = np.zeros(len(grps), dtype=int)
+        for igrp in range(len(gg.groups)):
+            ilo = idxs[igrp]
+            ihi = idxs[igrp+1]
+            idxsort = np.argsort(gg['Rpetro'][ilo:ihi])
+            cataid = gg['CATAID'][ilo:ihi][idxsort][nmin-1]
+            grps['CATAID'][igrp] = cataid
+
+        # Left join groups with GAMA galaxy data
+        gal = GalSample()
+        gal.read_gama(nq_min=2)
+        del gal.t['RA']
+        del gal.t['DEC']
+        del gal.t['z']
+        self.t = join(grps, gal.t, keys='CATAID', join_type='left',
+                      metadata_conflicts=metadata_conflicts)
+        self.z0 = gal.z0
+
+        # Finally calculate visibility limits and hence Vmax
+        self.vis_calc()
+        self.vmax_calc()
         self.assign_jackknife()
-        self.t['Nmem'] = np.zeros(len(self.t), dtype=int)
-        self.t['zlo'] = np.zeros(len(self.t))
-        self.t['zhi'] = np.zeros(len(self.t))
-        self.t['Vmax_raw'] = np.zeros(len(self.t))
-        self.t['Vmax_dec'] = np.zeros(len(self.t))
-        for i in range(len(self.t)):
-            grpid = self.t['GroupID'][i]
-#            icat = cataid[grpid]
-            self.t['Nmem'][i] = Nmem[grpid]
-            self.t['zlo'][i] = grp_zlo[grpid]
-            self.t['zhi'][i] = grp_zhi[grpid]
-            self.t['Vmax_raw'][i] = grp_vmax_raw[grpid]
-            self.t['Vmax_dec'][i] = grp_vmax_dec[grpid]
 
     def select(self, sel_dict):
         """Select galaxies that satisfy criteria in sel_dict."""

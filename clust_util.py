@@ -176,7 +176,7 @@ def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
             J3_pars = (0, 0, 0)
         ndupe = np.array(np.round(
                 nfac*ts['Vmax_raw'] / ts['Vmax_dec']).astype(np.int32))
-
+#        print(ndupe)
         nran = np.sum(ndupe)
         zran = np.zeros(nran)
         j = 0
