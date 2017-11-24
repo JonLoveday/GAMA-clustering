@@ -112,7 +112,7 @@ class GalSample():
 
         # Copy required columns to new table
         self.t = t['CATAID', 'RA', 'DEC', 'Z_TONRY', 'R_PETRO', 'KCORR_R',
-                   'PCOEFF_R']
+                   'PCOEFF_R', 'R_SB']
         self.t.rename_column('Z_TONRY', 'z')
         self.assign_jackknife()
 

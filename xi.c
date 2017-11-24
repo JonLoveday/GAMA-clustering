@@ -27,6 +27,9 @@ Revision history
 2.4 16-oct-17  Allow two catalogues to have independent J3-weighting, to allow, 
                for example, for cross-correlation of a volume-limited sample 
 	       with a flux-limited one.
+2.5 24-nov-17  Add option of fixed J3, rather than integrating power-law to
+               pair separation, and output summed weights to allow for proper
+               normalisation of cross-correlation functions.
 */
 
 #include <stdlib.h>
@@ -46,6 +49,7 @@ typedef struct cell {
 } CELL;
 
 typedef struct j3par {
+  /* If rmax < 0.1, then J3 is assumed fixed at the value given by gamma */
   float gamma, r0, rmax;
 } J3PAR;
 
@@ -66,14 +70,15 @@ double *pc_log, *s_log, *pc_lin_lin, *pc_log_lin, *pc_log_log,
 
 int main(int argc, char *argv[])
 {
-  const char *ver = "xi 2.4";
+  const char *ver = "xi 2.5";
   char *cmd = "Usage: xi <infile> <outfile> OR xi <infile> <ranfile> <outfile>";
 
   CELL *galcell, *rancell;
   J3PAR *J3gal, *J3ran;
   int ngal, nran=0, nobj, nc, ncr, ncell, ncellr, icell, ix, iy, iz, 
     ijack, njackr, i, j, k, ibin, ireg;
-  float x, y, z, weight, den, Vmax, cellsize, cellsizer, gamma, r0, rmax;
+  float wgal=0, wran=0, x, y, z, weight, den, Vmax, cellsize, cellsizer,
+    gamma, r0, rmax;
   const int nameLength = 80, infoLength=512;
   char inFile[80], ranFile[80], outFile[80], 
     info_gal[infoLength], info_ran[infoLength], line[infoLength];
@@ -128,14 +133,19 @@ int main(int argc, char *argv[])
       galcell[icell].obj[i].x = x; 
       galcell[icell].obj[i].y = y; 
       galcell[icell].obj[i].z = z; 
-      galcell[icell].obj[i].weight = weight; 
+      galcell[icell].obj[i].weight = weight;
+      if (rmax < 0.1) {
+	galcell[icell].obj[i].weight /= (1 + 4*M_PI*den*gamma);
+      }
       galcell[icell].obj[i].den = den; 
       galcell[icell].obj[i].Vmax = Vmax; 
       galcell[icell].obj[i].ireg = ireg;
+      wgal += galcell[icell].obj[i].weight;
     }
   }
   fclose(file);
-  printf("%d galaxies read in %d cells, njack = %d\n", ngal, ncell, njack);
+  printf("%d galaxies (%f weight) read in %d cells, njack = %d\n",
+	 ngal, wgal, ncell, njack);
 
   /* Bin step sizes and maximum separation for pair counting.  
      xmax is largest of logmax and linmax in linear units. */
@@ -188,13 +198,18 @@ int main(int argc, char *argv[])
 	rancell[icell].obj[i].y = y; 
 	rancell[icell].obj[i].z = z; 
 	rancell[icell].obj[i].weight = weight; 
+	if (rmax < 0.1) {
+	  rancell[icell].obj[i].weight /= (1 + 4*M_PI*den*gamma);
+	}
 	rancell[icell].obj[i].den = den; 
 	rancell[icell].obj[i].Vmax = Vmax; 
 	rancell[icell].obj[i].ireg = ireg;
+	wran += rancell[icell].obj[i].weight;
       }
     }
     fclose(file);
-    printf("%d randoms read in %d cells, njack = %d\n", nran, ncellr, njack);
+    printf("%d randoms (%f weight) read in %d cells, njack = %d\n",
+	   nran, wran, ncellr, njack);
   }
 
   /* Allocate memory for pair counts */
@@ -271,7 +286,7 @@ int main(int argc, char *argv[])
   }
   fprintf(file, "%s %s\n", ver, inFile);
   fputs(info_gal, file);
-  fprintf(file, "%d %d %d %d\n", ngal, nran, njack, 3);
+  fprintf(file, "%d %f %d %f %d %d\n", ngal, wgal, nran, wran, njack, 3);
 
   /* xi(s): columns are s, pc, pc[1], pc[2], ... pc[njack] */
   fprintf(file, "%d %f %f\n", nlog, logmin, logmax);
@@ -503,7 +518,7 @@ int countSep(OBJ obj1, OBJ obj2, J3PAR *J31, J3PAR *J32)
 double minVarWt(double s, double den, J3PAR *J3)
 {
   double ss, J3val;
-  if (J3->gamma <= 0.1) return 1.0;
+  if (J3->gamma <= 0.1 || J3->r0 <= 0.1) return 1.0;
   ss = s < J3->rmax ? s : J3->rmax;
   J3val = pow(J3->r0,J3->gamma) / (3-J3->gamma) * pow(ss,3-J3->gamma);
   return 1.0 / (1 + 4*M_PI*den*J3val);

@@ -17,7 +17,7 @@ import gal_sample as gs
 import util
 
 gama_data = os.environ['GAMA_DATA']
-mass_bins = (12, 13, 13.5, 14, 16)
+mass_bins = (12, 13.2, 13.5, 13.9, 16)
 xi_int = '$BIN/xi '
 xi_bat = 'qsub /research/astro/gama/loveday/Documents/Research/python/apollo_job.sh $BIN/xi '
 
@@ -45,7 +45,7 @@ def groups_gen(zlimits=(0.002, 0.1), nfac=10):
               mask=gama_data+'/mask/zcomp.ply', run=0)
 
 
-def groups_mass(zlimits=(0.002, 0.5), mbins=(12, 13, 13.5, 14, 16), nfac=10):
+def groups_mass(zlimits=(0.002, 0.5), mbins=mass_bins, nfac=10):
     """Cross-correlation sample generation for groups in mass bins."""
 
     # Galaxy sample
@@ -96,7 +96,19 @@ def groups_run(xi_cmd=xi_bat):
     subprocess.call(cmd, shell=True)
 
 
-def groups_bin_run(xi_cmd=xi_bat, nbin=4):
+def groups_bin_arun(xi_cmd=xi_bat, nbin=4):
+    """Auto-correlation pair counts of binned groups."""
+
+    for i in range(nbin):
+        cmd = xi_cmd + 'grp{0}.dat gg_grp{0}.dat'.format(i)
+        subprocess.call(cmd, shell=True)
+        cmd = xi_cmd + 'grp{0}.dat grp{0}_ran.dat gr_grp{0}.dat'.format(i)
+        subprocess.call(cmd, shell=True)
+        cmd = xi_cmd + 'grp{0}_ran.dat rr_grp{0}.dat'.format(i)
+        subprocess.call(cmd, shell=True)
+
+
+def groups_bin_xrun(xi_cmd=xi_bat, nbin=4):
     """Cross-correlation pair counts of binned groups."""
 
     cmd = xi_cmd + 'gal.dat gg_gal_gal.dat'
@@ -162,8 +174,35 @@ def plots(key='w_p', binning=1, pi_lim=100, rp_lim=100):
     plt.draw()
 
 
-def bin_plots(key='w_p', binning=1, pi_lim=100, rp_lim=100, nbin=4):
-    """Plot the binned correlations."""
+def bin_aplots(key='w_p', binning=1, pi_lim=100, rp_lim=100, nbin=4):
+    """Plot the binned auto-correlations."""
+
+    xi_list = []
+    for i in range(nbin):
+
+        gg = cu.PairCounts('gg_grp{0}.dat'.format(i))
+        gr = cu.PairCounts('gr_grp{0}.dat'.format(i))
+        rr = cu.PairCounts('rr_grp{0}.dat'.format(i))
+
+        counts = {'gg': gg, 'gr': gr, 'rr': rr}
+        xi = cu.Xi()
+        xi_est = xi.est(counts, cu.ls, key=key, binning=binning,
+                        pi_lim=pi_lim, rp_lim=rp_lim)
+        xi_list.append(xi_est)
+
+    plt.clf()
+    ax = plt.subplot(111)
+    for xi, label in zip(xi_list, [0, 1, 2, 3]):
+        xi.plot(ax, label='M{}'.format(label))
+    ax.loglog(basex=10, basey=10, nonposy='clip')
+    plt.legend()
+    plt.xlabel(r'$r_\perp$')
+    plt.ylabel(r'$w_p(r_\perp)$')
+    plt.draw()
+
+
+def bin_xplots(key='w_p', binning=1, pi_lim=100, rp_lim=100, nbin=4):
+    """Plot the binned cross-correlations."""
 
     xi_list = []
     for i in range(nbin):

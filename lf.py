@@ -50,6 +50,19 @@ def blf_test(outfile='blf.dat',
     lf.plot(finish=True)
 
 
+def bbd_petro(outfile='bbd_petro.dat',
+              cols=('ABSMAG_R', 'R_SB'), arange=((-25, -12), (16, 26)),
+              bins=(26, 20), zmin=0.002, zmax=0.65, clean_photom=1, use_wt=1):
+    """Petrosian BBD using density-corrected Vmax."""
+
+    samp = gs.GalSample()
+    samp.read_gama()
+    samp.stellar_mass()
+    samp.add_vmax()
+    lf = LF2(samp.tsel(), cols, bins, arange)
+    lf.plot(finish=True)
+
+
 def group_lf(mbins=(12.00, 12.34, 12.68, 13.03, 13.37, 13.71, 14.05),
              mdbins=(12, 14, 14.5, 15, 16.5),
              ndbins=(1, 1.8, 2.2, 2.5, 5), nmin=5, nmax=500, edge_min=0.9,

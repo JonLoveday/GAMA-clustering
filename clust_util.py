@@ -19,7 +19,12 @@ qsub_xi_cmd = 'qsub ' + job_script + ' $BIN/xi '
 
 def_binning = (-2, 2, 20, 0, 100, 100)
 def_theta_max = 12
-def_J3_pars = (1.84, 5.59, 30)
+
+# J3 pars are (gamma, r0, rmax), respectively.
+# If rmax < 0.1, then the first parameter is assumed to be J3 itself.
+# This is necessary to correctly normalise cross-correlations.
+#def_J3_pars = (1.84, 5.59, 30)
+def_J3_pars = (2000, 0, 0)
 
 def_plot_size = (5, 3.5)
 xlabel = {'xis': r'$s\ [h^{-1}{\rm Mpc}]$',
@@ -678,9 +683,11 @@ class PairCounts(object):
 
         args = f.readline().split()
         self.na = float(args[0])
-        self.nb = float(args[1])
-        self.njack = int(args[2])
-        self.n2d = int(args[3])
+        self.wa = float(args[1])
+        self.nb = float(args[2])
+        self.wb = float(args[3])
+        self.njack = int(args[4])
+        self.n2d = int(args[5])
 
         # Read direction-averaged counts
         args = f.readline().split()
@@ -694,10 +701,10 @@ class PairCounts(object):
             self.sep[i] = float(data[0])
 #            self.pc[i, :] = map(float, data[1:])
             self.pc[i, :] = [float(data[j]) for j in range(1, len(data))]
-        if self.nb > 0:
-            self.pcn = self.pc/self.na/self.nb
+        if self.wb > 0:
+            self.pcn = self.pc/self.wa/self.wb
         else:
-            self.pcn = 2*self.pc/self.na/(self.na - 1)
+            self.pcn = 2*self.pc/self.wa/(self.wa - 1)
 
         # Read counts for 2d binnings
         self.pc2_list = []
@@ -745,10 +752,10 @@ class PairCounts(object):
                 rp = rpbin
                 pc = pcbin
 
-            if self.nb > 0:
-                pcn = pc/self.na/self.nb
+            if self.wb > 0:
+                pcn = pc/self.wa/self.wb
             else:
-                pcn = 2*pc/self.na/(self.na - 1)
+                pcn = 2*pc/self.wa/(self.wa - 1)
             self.pc2_list.append(
                 {'npi': npi, 'pimin': pimin, 'pimax': pimax, 'pi': pi,
                  'nrp': nrp, 'rpmin': rpmin, 'rpmax': rpmax, 'rp': rp,
@@ -761,6 +768,8 @@ class PairCounts(object):
         ests = xrange(nest)
         self.na = np.sum([pcs[i].na for i in ests])
         self.nb = np.sum([pcs[i].nb for i in ests])
+        self.wa = np.sum([pcs[i].wa for i in ests])
+        self.wb = np.sum([pcs[i].wb for i in ests])
         self.njack = pcs[0].njack
         self.n2d = pcs[0].n2d
         self.info = pcs[0].info
@@ -806,6 +815,8 @@ class PairCounts(object):
         ests = xrange(nest)
         self.na = np.mean([pcs[i].na for i in ests])
         self.nb = np.mean([pcs[i].nb for i in ests])
+        self.wa = np.mean([pcs[i].wa for i in ests])
+        self.wb = np.mean([pcs[i].wb for i in ests])
         self.njack = nest
         self.n2d = pcs[0].n2d
         self.info = pcs[0].info
@@ -855,7 +866,7 @@ class PairCounts(object):
         f = open(outfile, 'w')
         print('PairCounts.write() output', file=f)
         print(self.info, file=f)
-        print(self.na, self.nb, self.njack, self.n2d, file=f)
+        print(self.na, self.wa, self.nb, self.wb, self.njack, self.n2d, file=f)
 
         print(self.ns, self.smin, self.smax, file=f)
         for i in range(self.ns):
