@@ -18,6 +18,9 @@ import util
 gama_data = os.environ['GAMA_DATA']
 tcfile = gama_data + 'TilingCatv46.fits'
 kcfile = gama_data + 'kcorr_dmu/v5/kcorr_auto_z01_vecv05.fits'
+bnfile = gama_data + 'BrightNeighbours.fits'
+ext_file = gama_data + 'GalacticExtinctionv03.fits'
+sersic_file = gama_data + 'SersicCatSDSSv09.fits'
 g3cfof = gama_data + 'g3cv9/G3CFoFGroupv09.fits'
 g3cgal = gama_data + 'g3cv9/G3CGalv08.fits'
 
@@ -120,6 +123,8 @@ class GalSample():
         kc = self.t['KCORR_R']
         self.t['ABSMAG_R'] = (t['R_PETRO'] - self.cosmo.dist_mod(z) - kc +
                               self.ecorr(z))
+        self.t['R_SB_ABS'] = (t['R_SB'] - 10*np.log10(1 + z) - kc +
+                              self.ecorr(z))
 
         # Fit polynomial to median K(z) for good fits
         nk = t['PCOEFF_R'].shape[1]
@@ -144,6 +149,37 @@ class GalSample():
         zcomp = z_comp(t['FIBERMAG_R'])
         self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
         self.t['use'] = np.ones(len(self.t), dtype=np.bool)
+
+    def add_sersic(self):
+        """Add Sersic photometry."""
+
+        st = Table.read(sersic_file)
+        et = Table.read(ext_file)
+        st = join(st, et, keys='CATAID', metadata_conflicts=metadata_conflicts)
+        st['R_SERSIC'] = st['GALMAG10RE_r'] - st['A_r']
+        st['R_SB_SERSIC'] = st['GALMUEAVG_r'] - st['A_r']
+
+        st = st['CATAID', 'R_SERSIC', 'R_SB_SERSIC']
+        t = self.t
+        z = t['z']
+        t = join(t, st, keys='CATAID', join_type='left',
+                 metadata_conflicts=metadata_conflicts)
+        t['ABSMAG_R_SERSIC'] = (t['R_SERSIC'] - self.cosmo.dist_mod(z) -
+                                t['KCORR_R'] + self.ecorr(z))
+        t['R_SB_SERSIC_ABS'] = (t['R_SB_SERSIC'] - 10*np.log10(1 + z) -
+                                t['KCORR_R'] + self.ecorr(z))
+
+        # Exclude objects with suspect Sersic photometry (Loveday+2015, Sec 2)
+        bt = Table.read(bnfile)
+        t = join(t, bt, keys='CATAID', join_type='left',
+                 metadata_conflicts=metadata_conflicts)
+        ncand = len(t)
+        sel = (t['objid'].mask *
+               (np.fabs(t['R_PETRO'] - t['R_SERSIC']) < 2))
+        self.t = t[sel]
+        nclean = len(self.t)
+        print(nclean, 'out of', ncand, 'targets with clean Sersic photometry')
+#        pdb.set_trace()
 
     def read_gama_groups(self, nmin=5, edge_min=0.9):
         """Read data for GAMA group centres.  Group visibility limits and Vmax

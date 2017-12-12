@@ -51,16 +51,29 @@ def blf_test(outfile='blf.dat',
 
 
 def bbd_petro(outfile='bbd_petro.dat',
-              cols=('ABSMAG_R', 'R_SB'), arange=((-25, -12), (16, 26)),
+              cols=('ABSMAG_R', 'R_SB_ABS'), arange=((-25, -12), (16, 26)),
               bins=(26, 20), zmin=0.002, zmax=0.65, clean_photom=1, use_wt=1):
     """Petrosian BBD using density-corrected Vmax."""
 
     samp = gs.GalSample()
     samp.read_gama()
-    samp.stellar_mass()
     samp.add_vmax()
     lf = LF2(samp.tsel(), cols, bins, arange)
-    lf.plot(finish=True)
+    lf.plot(chol_fit=True, finish=True)
+
+
+def bbd_sersic(outfile='bbd_sersic.dat',
+               cols=('ABSMAG_R_SERSIC', 'R_SB_SERSIC_ABS'),
+               arange=((-25, -12), (16, 26)),
+               bins=(26, 20), zmin=0.002, zmax=0.65, use_wt=1):
+    """Petrosian BBD using density-corrected Vmax."""
+
+    samp = gs.GalSample()
+    samp.read_gama()
+    samp.add_sersic()
+    samp.add_vmax()
+    lf = LF2(samp.tsel(), cols, bins, arange)
+    lf.plot(chol_fit=True, finish=True)
 
 
 def group_lf(mbins=(12.00, 12.34, 12.68, 13.03, 13.37, 13.71, 14.05),
@@ -299,10 +312,16 @@ class LF2():
     """Bivariate LF data and methods."""
 
     def __init__(self, t, cols, bins, arange, norm=1, Vmax='Vmax_dec'):
-        """Initialise new LF instance from specified table and column."""
+        """Initialise new LF instance from specified table and column.
+        Note that the 2d LF array holds the first specified column along
+        the first dimension, and the second along the second dimension.
+        When plotting, the first dimension corresponds to the vertical axis,
+        the second to the horizontal."""
 
         self.cols, self.bins, self.arange = cols, bins, arange
         wt = t['cweight']/t[Vmax]
+        self.ngal, xedges, yedges = np.histogram2d(
+                t[cols[0]], t[cols[1]], bins, arange)
         self.phi, xedges, yedges = np.histogram2d(
                 t[cols[0]], t[cols[1]], bins, arange, weights=wt)
         self.Mbin1 = xedges[:-1] + 0.5*np.diff(xedges)
@@ -327,7 +346,8 @@ class LF2():
         for i in range(len(self.Mbin)):
             print(self.Mbin[i], self.phi[i], self.phi_err[i], file=f)
 
-    def plot(self, ax=None, label=None, vmin=-6, vmax=-1.5, finish=1):
+    def plot(self, ax=None, label=None, ngmin=5, vmin=-6, vmax=-1.5,
+             chol_fit=0, finish=1):
         """Plot bivariate LF."""
 
         if ax is None:
@@ -341,6 +361,60 @@ class LF2():
                    vmin=vmin, vmax=vmax)
         cb = plt.colorbar()
         cb.set_label(r'$\log_{10} \phi$')
+
+        """Least-squares Choloniewski fn fit to phi(M, mu)."""
+        if chol_fit:
+            chol_par_name = ('alpha', '   M*', ' phi*', ' beta', '  mu*',
+                             'log sigma')
+            M = np.tile(self.Mbin1, (len(self.Mbin2), 1))
+            mu = np.tile(self.Mbin2, (len(self.Mbin1), 1)).transpose()
+
+            def chol_resid(chol_par, phi, phi_err):
+                """Return residual between BBD and Choloniewski fit."""
+                diff = phi - chol_eval(chol_par)
+#                pdb.set_trace()
+                return (diff/phi_err).flatten()
+
+            def chol_eval(chol_par):
+                """Choloniewski function."""
+
+                alpha, Mstar, phistar, beta, mustar, log_sigma = chol_par
+                sigma = 10**log_sigma
+                fac = 0.4*math.log(10)/math.sqrt(2*math.pi)/sigma*phistar
+                lum = 10**(0.4*(Mstar - M))
+                gauss = np.exp(-0.5*((mu - mustar - beta*(M - Mstar))/sigma)**2)
+                chol = fac*lum**(alpha + 1)*np.exp(-lum)*gauss
+                return chol
+
+            prob = 0.32
+            phi = self.phi.T
+            phi_err = self.phi_err.T
+            exclude = self.ngal.T < ngmin
+            phi_err[exclude] = 1e6
+            use = self.ngal.T >= ngmin
+            nbin = len(phi[use])
+            nu = nbin - 6
+            dchisq = scipy.special.chdtri(nu, prob)
+            print(nu, dchisq)
+
+            p0 = [-1.2, -20.5, 0.01, 0.3, 20.0, -0.3]
+            res = scipy.optimize.leastsq(chol_resid, p0, (phi, phi_err),
+                                         xtol=0.001, ftol=0.001, full_output=1)
+            popt, cov, info, mesg, ier = res
+            print(mesg)
+            chi2 = (info['fvec']**2).sum()
+            cov *= (chi2/nu)
+
+            for i in range(6):
+                print('{} = {:7.3f} +- {:7.3f}'.format(chol_par_name[i],
+                      popt[i], math.sqrt(cov[i, i])))
+            print('chi2, nu: ', chi2, nu)
+            chol_arr = np.log10(chol_eval(popt))
+            v = np.linspace(vmin, vmax, int(2*(vmax - vmin)) + 1)
+            print('contours ', v)
+            plt.contour(chol_arr, v, aspect='auto', origin='lower',
+                        extent=extent)
+
         if finish:
             ax.set_xlabel(self.cols[0])
             ax.set_ylabel(self.cols[1])

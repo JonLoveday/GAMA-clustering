@@ -2,6 +2,7 @@
 
 import math
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import os
 import scipy.stats
