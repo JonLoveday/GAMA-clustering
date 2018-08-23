@@ -4,13 +4,14 @@ from __future__ import division
 
 import csv
 import glob
-import h5py
+#import h5py
 import math
 import numpy as np
 import os
 import pickle
 from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
+from astropy.table import Table, join
 from astLib import astCalc
 #import KCorrect as KC
 import pdb
@@ -26,7 +27,7 @@ import mpl_toolkits.axisartist.floating_axes as floating_axes
 import mpl_toolkits.axisartist.angle_helper as angle_helper
 from mpl_toolkits.axisartist.grid_finder import MaxNLocator
 import mpmath
-import pyqt_fit.kde
+#import pyqt_fit.kde
 import scipy.integrate
 import scipy.optimize
 import scipy.signal
@@ -38,6 +39,7 @@ import time
 import util
 
 # Directoty to save plots
+gama_data = os.environ['GAMA_DATA']
 plot_dir = os.environ['HOME'] + '/Documents/tex/papers/gama/jswml/'
 
 def counts_old(infile='TilingCatv10.fits'):
@@ -58,9 +60,9 @@ def counts_old(infile='TilingCatv10.fits'):
 ##     n, bins, patches = plt.hist(mag, 60, [14, 20])
     plt.clf()
     plt.subplot(211)
-    print plt.hist(mp, 60, [fmin, fmax])
+    print(plt.hist(mp, 60, [fmin, fmax]))
     plt.subplot(212)
-    print plt.hist(mag, bins, [mmin, mmax])
+    print(plt.hist(mag, bins, [mmin, mmax]))
     plt.draw()
     hdulist.close()
 
@@ -158,7 +160,7 @@ def tcomp(infile='TilingCatv43.fits', magname='r_petro',
         fig = plt.gcf()
         fig.set_size_inches(5, 5)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print 'plot saved to ', plot_dir + plot_file
+        print('plot saved to ', plot_dir + plot_file)
 
 
 def zcomp(infile='kcorrz01.fits', magname='fibermag_r',
@@ -204,7 +206,7 @@ def zcomp(infile='kcorrz01.fits', magname='fibermag_r',
     popt, cov, info, mesg, ier = res
     chi2 = (info['fvec']**2).sum()
     nu = len(mags) - len(popt)
-    print 'sigmoid parameters', popt, 'chi2, nu', chi2, nu
+    print('sigmoid parameters', popt, 'chi2, nu', chi2, nu)
 
     plt.clf()
     fig, axes = plt.subplots(2, sharex=True, num=1)
@@ -225,7 +227,7 @@ def zcomp(infile='kcorrz01.fits', magname='fibermag_r',
         fig = plt.gcf()
         fig.set_size_inches(5, 5)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print 'plot saved to ', plot_dir + plot_file
+        print('plot saved to ', plot_dir + plot_file)
 
 def zcomp_g10(infile='G10CosmosCatv01.fits', magname='I_MAG_AUTO_06',
               mrange=(18.8, 25), mstep=0.1, p0=(22, 2, 0.5), 
@@ -279,7 +281,7 @@ def zcomp_g10(infile='G10CosmosCatv01.fits', magname='I_MAG_AUTO_06',
         fig = plt.gcf()
         fig.set_size_inches(5, 5)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print 'plot saved to ', plot_dir + plot_file
+        print('plot saved to ', plot_dir + plot_file)
 
 def magErrHist(infile):
     """Histogram SDSS mag errors"""
@@ -469,7 +471,7 @@ def spiral(rmax):
             c -= dir
     plt.axis([-rmax, rmax, -rmax, rmax])
     plt.draw()
-    print idict
+    print(idict)
 
 def coordDist():
     """Coord distance vs z plot for Omega_m = 1 Universe"""
@@ -497,8 +499,8 @@ def button():
     ax.plot(np.random.rand(10))
 
     def onclick(event):
-        print 'button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
-            event.button, event.x, event.y, event.xdata, event.ydata)
+        print('button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
+            event.button, event.x, event.y, event.xdata, event.ydata))
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
 
@@ -604,7 +606,7 @@ def cone_plot(infile='kcorrz01.fits', z_limits=(0, 0.5), alpha=0.5,
     z = tbdata.field('z')
     ra = tbdata.field('RA')
     dec = tbdata.field('DEC')
-    print len(z), 'objects selected'
+    print(len(z), 'objects selected')
     
     ra_limits = ((129, 141), (174, 186), (211.5, 223.5))
     dec_limits = ((-2, 3), (-3, 2), (-2, 3))
@@ -708,7 +710,7 @@ def bpt_sdss(infile, outfile):
            (tbdata.field('H_BETA_FLUX')/
            tbdata.field('H_BETA_FLUX_ERR')/1.882 >= 3))
     bpt_type[~idx] = 'q'
-    print len(np.flatnonzero(~idx)), ' quiescent galaxies'
+    print(len(np.flatnonzero(~idx)), ' quiescent galaxies')
 
     # For remaining galaxies, classify according to flux ratios
     NII_Halpha = np.log10(tbdata.field('NII_6584_FLUX')/
@@ -723,7 +725,7 @@ def bpt_sdss(infile, outfile):
     bpt_type[idx] = 's'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='k',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' starforming galaxies'
+    print(len(np.flatnonzero(idx)), ' starforming galaxies')
     
     # Composite
     idx = ((bpt_type != 'q')*(OIII_Hbeta > 0.61/(NII_Halpha - 0.05) + 1.3)*
@@ -731,14 +733,14 @@ def bpt_sdss(infile, outfile):
     bpt_type[idx] = 'c'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='b',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' composite galaxies'
+    print(len(np.flatnonzero(idx)), ' composite galaxies')
     
     # AGN
     idx = (bpt_type != 'q')*(OIII_Hbeta > 0.61/(NII_Halpha - 0.47) + 1.19)
     bpt_type[idx] = 'a'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='r',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' AGN galaxies'
+    print(len(np.flatnonzero(idx)), ' AGN galaxies')
     plt.axis([-2, 1, -1.2, 1.5])
     plt.draw()
     
@@ -789,7 +791,7 @@ def bpt_gama():
            (tbdata.field('OIIIRFLUX')/tbdata.field('OIIIRFLUX_ERR') >= 3) *
            (tbdata.field('HBFLUX')/tbdata.field('HBFLUX_ERR') >= 3))
     bpt_type[~idx] = 'q'
-    print len(np.flatnonzero(~idx)), ' quiescent galaxies'
+    print(len(np.flatnonzero(~idx)), ' quiescent galaxies')
 
     # For remaining galaxies, classify according to flux ratios
     NII_Halpha = np.log10(tbdata.field('NIIRFLUX')/tbdata.field('HAFLUX'))
@@ -802,7 +804,7 @@ def bpt_gama():
     bpt_type[idx] = 's'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='k',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' starforming galaxies'
+    print(len(np.flatnonzero(idx)), ' starforming galaxies')
 
     # Composite
     idx = ((bpt_type != 'q') * (OIII_Hbeta > 0.61/(NII_Halpha - 0.05) + 1.3) *
@@ -810,17 +812,17 @@ def bpt_gama():
     bpt_type[idx] = 'c'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='b',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' composite galaxies'
+    print(len(np.flatnonzero(idx)), ' composite galaxies')
 
     # AGN
     idx = (bpt_type != 'q')*(OIII_Hbeta > 0.61/(NII_Halpha - 0.47) + 1.19)
     bpt_type[idx] = 'a'
     plt.scatter(NII_Halpha[idx], OIII_Hbeta[idx], s=0.01, c='r',
                 edgecolors='face')
-    print len(np.flatnonzero(idx)), ' AGN galaxies'
+    print(len(np.flatnonzero(idx)), ' AGN galaxies')
 
     idx = (bpt_type == 'u')
-    print len(np.flatnonzero(idx)), ' unclassified'
+    print(len(np.flatnonzero(idx)), ' unclassified')
 
     plt.axis([-2, 1, -1.2, 1.5])
     plt.draw()
@@ -968,7 +970,7 @@ def add_colour(infile, outfile, limits=(-23, -15.5, 0.1, 1.2),
     cut = colourCut(M_r)
     nb = (gr < cut).sum()
     nr = (gr > cut).sum()
-    print 'nblue, nred = ', nb, nr
+    print('nblue, nred = ', nb, nr)
 
     zlims = [[0.002, 0.1], [0.1, 0.2], [0.2, 0.3], [0.3, 0.65]]
     fig = plt.figure(1)
@@ -992,8 +994,9 @@ def add_colour(infile, outfile, limits=(-23, -15.5, 0.1, 1.2),
         ax.text(0.6, 0.9, title, transform = ax.transAxes)
         nb = (gr[idx] < cut[idx]).sum()
         nr = (gr[idx] >= cut[idx]).sum()
-        print zlims[iz], ' nblue, nred = ', nb, nr
+        print(zlims[iz], ' nblue, nred = ', nb, nr)
     plt.draw()
+
 
 def sbPlot(infile):
     """Plot SB histogram and completeness."""
@@ -1118,7 +1121,7 @@ def mag_select(infile, outfile):
     tbdata = hdulist[1].data
     mag = tbdata.field('petroMagCor_r')
     ngal = len(mag)
-    print ngal, ' galaxies read'
+    print(ngal, ' galaxies read')
     
     # Histogram the data by magnitude
     mmin = 17.5
@@ -1142,7 +1145,7 @@ def mag_select(infile, outfile):
     hdu = fits.BinTableHDU(newtbdata)
     hdu.writeto(outfile, clobber=True)
     hdulist.close()
-    print nout, ' galaxies selected'
+    print(nout, ' galaxies selected')
 
 def k_comp(infile1='kcorr_z00v01.fits', infile2='../mlum/kcorr.fits'):
     """Compare k-corrections between ugriz and FNugrizYJHK."""    
@@ -1154,7 +1157,7 @@ def k_comp(infile1='kcorr_z00v01.fits', infile2='../mlum/kcorr.fits'):
     kcorr1 = tbdata.field('kcorr')
     pcu1 = tbdata.field('kcoeffu')
     hdulist.close()
-    print kcorr1[0], pcu1[0]
+    print(kcorr1[0], pcu1[0])
     
     hdulist = fits.open(infile2)
     header = hdulist[1].header
@@ -1162,7 +1165,7 @@ def k_comp(infile1='kcorr_z00v01.fits', infile2='../mlum/kcorr.fits'):
     kcorr2 = tbdata.field('kcorr')
     pc2 = tbdata.field('pcoeff')
     hdulist.close()
-    print kcorr2[0][2:7], np.reshape(pc2[0], (5, 11)).transpose()[2]
+    print(kcorr2[0][2:7], np.reshape(pc2[0], (5, 11)).transpose()[2])
     pdb.set_trace()
 
 def abs_vals(infile='kcorr.fits', outfile='absmag.fits'):
@@ -1179,7 +1182,7 @@ def abs_vals(infile='kcorr.fits', outfile='absmag.fits'):
     zmax = 0.5
     cosmo = util.CosmoLookup(H0, omega_l, (zmin, zmax))
 
-    print 'H0, omega_l, z0, area/Sr = ', H0, omega_l, z0, area
+    print('H0, omega_l, z0, area/Sr = ', H0, omega_l, z0, area)
 
     tbdata = hdulist[1].data
     nq = tbdata.field('nq')
@@ -1219,7 +1222,7 @@ def ss_plot():
                               ('gravity_earth', np.float),
                               ('type',np.str, 16)]),
                       delimiter=',', skiprows=2)
-    print data['density'], data['radius_km']
+    print(data['density'], data['radius_km'])
     
     plt.clf()
     plt.semilogy(basey=10, nonposy='clip')
@@ -1238,7 +1241,7 @@ def planet_lt(r, d, a):
     sigma = 5.67e-8
     lum = L_sun*r**2*(1-a)/(4*d**2)
     Te = (L_sun * (1-a) /(16 * math.pi * d**2 * sigma))**0.25
-    print lum, Te
+    print(lum, Te)
  
 def mgc_phot():
     """Compare B_MGC and SDSS r magnitudes."""
@@ -1246,8 +1249,8 @@ def mgc_phot():
     sel = (dat[:,1] == 1) * (dat[:,2] < 18) * (dat[:,2] > 10)
     B = dat[sel,0]
     r = dat[sel,2]
-    print len(B), 'galaxies'
-    print 'B - r = ', np.mean(B-r), np.std(B-r)
+    print(len(B), 'galaxies')
+    print('B - r = ', np.mean(B-r), np.std(B-r))
     plt.clf()
     plt.scatter(r, B-r, s=0.1)
     plt.xlabel('r mag')
@@ -1256,7 +1259,7 @@ def mgc_phot():
     
 def J3(r0, gamma, rmax):
     """4 pi J3 given xi(r) parameters."""
-    print 4*math.pi * r0**gamma / (3 - gamma) * rmax**(3-gamma)
+    print(4*math.pi * r0**gamma / (3 - gamma) * rmax**(3-gamma))
 
 def mock_M_z(infile='/research/astro/gama/loveday/gama/g3cv6/G3CMockGalv06.fits',
              mlim=19.8, zrange=(0.002, 0.5), vol=1):
@@ -1551,7 +1554,7 @@ def mass_comp(infile='kcorrz01.fits', lgmmin=6, lgmmax=13, lgmstep=0.2,
         pfit = np.polyfit(zmed, logMmin, pord)
         ax.plot(zmed, np.polyval(pfit, zmed), 'g-')
         ax.text(0.9, 0.1, clr, transform=ax.transAxes)
-        print clr, pfit
+        print(clr, pfit)
     ax.set_xlabel(r'Redshift $z$')
     plt.draw()
     fig = plt.gcf()
@@ -1711,7 +1714,7 @@ def kde_test(area=0.0001, nsamp=10, alpha=-1.1, Mstar=-20.5,
     Vs = area * (cosmo.dm(zlims[1])**3 - cosmo.dm(zlims[0])**3)
     den = phistar * mpmath.gammainc(alpha+1, L1, L2)
     ndat = int(Vs * den)
-    print 'Vol, density, ndat:', Vs, den, ndat
+    print('Vol, density, ndat:', Vs, den, ndat)
 
     phi_bin = np.zeros((nsamp, nM))
     phi_kde = np.zeros((nsamp, nM))
@@ -1744,27 +1747,27 @@ def kde_test(area=0.0001, nsamp=10, alpha=-1.1, Mstar=-20.5,
         # phi_kde[isamp, :] = scipy.signal.deconvolve(kde(Mbins), gauss)[0] * wt.sum()
         phi_kde[isamp, :] = kde(Mbins) * wt.sum()
 
-        print 'Sample {}: {} visible galaxies, wtsum ={}, kde bw = {}'.format(
-            isamp, nsel, wt.sum(), kde.bandwidth)
+        print('Sample {}: {} visible galaxies, wtsum ={}, kde bw = {}'.format(
+            isamp, nsel, wt.sum(), kde.bandwidth))
 
     phi_bin_mean = np.mean(phi_bin, axis=0)
     phi_bin_err = np.std(phi_bin, axis=0)/math.sqrt(nsamp-1)
     schec_par = util.schec_fit(Mbins, phi_bin_mean, phi_bin_err, 
                                (alpha, Mstar, math.log10(phistar)))
-    print 'Binned phi: alpha = {:5.2f} +- {:5.2f}, M* = {:5.2f} +- {:5.2f}, log phi* = {:5.2f} +- {:5.2f}'.format(
+    print('Binned phi: alpha = {:5.2f} +- {:5.2f}, M* = {:5.2f} +- {:5.2f}, log phi* = {:5.2f} +- {:5.2f}'.format(
         schec_par['alpha'], schec_par['alpha_err'][0],
         schec_par['Mstar'], schec_par['Mstar_err'][0],
-        schec_par['lpstar'], schec_par['lpstar_err'][0])
+        schec_par['lpstar'], schec_par['lpstar_err'][0]))
 
     phi_kde_mean = np.mean(phi_kde, axis=0)
     phi_kde_err = np.std(phi_kde, axis=0)/math.sqrt(nsamp-1)
     schec_par = util.schec_fit(Mbins, phi_kde_mean, phi_kde_err, 
                                (alpha, Mstar, math.log10(phistar)), 
                                sigma=kde.bandwidth)
-    print 'KDE phi: alpha = {:5.2f} +- {:5.2f}, M* = {:5.2f} +- {:5.2f}, log phi* = {:5.2f} +- {:5.2f}'.format(
+    print('KDE phi: alpha = {:5.2f} +- {:5.2f}, M* = {:5.2f} +- {:5.2f}, log phi* = {:5.2f} +- {:5.2f}'.format(
         schec_par['alpha'], schec_par['alpha_err'][0],
         schec_par['Mstar'], schec_par['Mstar_err'][0],
-        schec_par['lpstar'], schec_par['lpstar_err'][0])
+        schec_par['lpstar'], schec_par['lpstar_err'][0]))
 
     plt.clf()
     plt.errorbar(Mbins, phi_bin_mean, yerr=phi_bin_err, fmt='o')
@@ -1836,10 +1839,10 @@ def mag_plot(infile='kcorrz01.fits', dmrange=(-6,6), dmlim=2,
     red = (tbdata.field('bn_objid') < 0) * (tbdata.field('colour') == 'r')
     good = np.fabs(r_pet[idx] - r_ser[idx]) < dmlim
     ngood = len(tbdata[good])
-    print '{} out of {} targets ({})with no bright neighbours'.format(
-        nnbn, ntarg, float(nnbn)/ntarg)
-    print '{} ({})with dm < {}'.format(
-        ngood, float(ngood)/nnbn, dmlim)
+    print('{} out of {} targets ({})with no bright neighbours'.format(
+        nnbn, ntarg, float(nnbn)/ntarg))
+    print('{} ({})with dm < {}'.format(
+        ngood, float(ngood)/nnbn, dmlim))
     bad = np.fabs(r_pet[idx] - r_ser[idx]) > dmlim
     nbad = len(tbdata[idx][bad])
 
@@ -1990,7 +1993,7 @@ def zspace_sep(coords):
 
     rp = (r[0] + r[1])*t
     pi = abs(r[0] - r[1])
-    print 'DP83 rp, pi = ', rp, pi
+    print('DP83 rp, pi = ', rp, pi)
 
     v0 = np.array((x[0], y[0], z[0]))
     v1 = np.array((x[1], y[1], z[1]))
@@ -1999,13 +2002,13 @@ def zspace_sep(coords):
     pi = abs(np.dot(s, l)/math.sqrt(np.dot(l, l)))
     rp = math.sqrt(np.dot(s, s) - pi**2)
 #    print v0, v1, s, l
-    print 'Fisher rp, pi = ', rp, pi
+    print('Fisher rp, pi = ', rp, pi)
 
 
 def cov_test(ndim=10, ngen=100, m=1, c=0):
     """Test fitting y = mx + c with correlated errors."""
 
-    def chi2((m, c)):
+    def chi2(m, c):
         """
         Chi^2 residual between obs and model, using first neig eigenvectors
         (Norberg+2009, eqn 12).  By default (neig=0), use diagonal elements
@@ -2057,12 +2060,12 @@ def cov_test(ndim=10, ngen=100, m=1, c=0):
     plt.show()
 
     eig_val, eig_vec = np.linalg.eigh(cnorm)
-    print eig_val
-    print eig_vec
+    print(eig_val)
+    print(eig_vec)
     idx = eig_val.argsort()[::-1]
     eig_val = eig_val[idx]
     eig_vec = eig_vec[:, idx]
-    print eig_val
+    print(eig_val)
 #    print eig_vec
 
     x = np.arange(ndim)
@@ -2119,10 +2122,8 @@ def fft_test(tmin=0, tmax=10, nbin=8):
 #    print np.fft.fft(signal)
 #    print np.fft.hfft(signal)
     smooth = 0.5*np.exp(-np.abs(t-tmid))
-    print scipy.integrate.quad(lambda t: np.exp(-5*(t-tmid)**2),
-                               tmin, tmax)
-    print scipy.integrate.quad(lambda t: 0.5*np.exp(-np.abs(t-tmid)),
-                               tmin, tmax)
+    print(scipy.integrate.quad(lambda t: np.exp(-5*(t-tmid)**2), tmin, tmax))
+    print(scipy.integrate.quad(lambda t: 0.5*np.exp(-np.abs(t-tmid)), tmin, tmax))
     plt.clf()
     plt.plot(t, signal, t, smooth)
     plt.show()
@@ -2174,7 +2175,7 @@ def exp_test():
     plt.clf()
     plt.plot(logx, y)
     plt.show()
-    print logx, y
+    print(logx, y)
 
 
 def cosmo_comp(H0=100, omega_l=0.7, zrange=(0, 1), nz=1000):

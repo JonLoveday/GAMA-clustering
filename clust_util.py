@@ -11,6 +11,7 @@ import subprocess
 from astropy.table import Table
 
 import gal_sample as gs
+import lf
 import util
 
 # Global parameters
@@ -75,11 +76,11 @@ def xtest(Mlim=(-21, -20.5, -20.45), key='w_p', binning=1, nfac=1,
     """Test cross-correlation using two luminosity-selected samples."""
 
     xi_cmd = '$BIN/xi '
-    selcol = 'ABSMAG_R'
+    selcol = 'r_petro'
     samp = gs.GalSample()
     samp.read_gama()
-    samp.vis_calc()
-    samp.add_vmax()
+    samp.vis_calc((lf.sel_gama_mag_lo, lf.sel_gama_mag_hi))
+    samp.vmax_calc()
     sel_dict = {selcol: (Mlim[0], Mlim[1])}
     xi_sel(samp, 'gal1.dat', 'ran1.dat', '', nfac, sel_dict=sel_dict,
            set_vmax=False, mask=gama_data+'/mask/zcomp.ply', run=0, J3wt=True)
@@ -173,7 +174,7 @@ def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
         J3_pars = (0, 0, 0)
         nran = nfac*ngal
         zran = util.ran_fun(
-                samp.vol_ev, samp.zlimits[0], samp.zlimits[1], nran)
+                samp.cosmo.vol_ev, samp.zlimits[0], samp.zlimits[1], nran)
         rancat.t['den'] = np.zeros(nran)
     else:
         if J3wt:
@@ -189,7 +190,7 @@ def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
         for i in range(ngal):
             ndup = ndupe[i]
             zran[j:j+ndup] = util.ran_fun(
-                    samp.vol_ev, np.array(ts['zlo'])[i],
+                    samp.cosmo.vol_ev, np.array(ts['zlo'])[i],
                     np.array(ts['zhi'])[i], ndup)
             j += ndup
 

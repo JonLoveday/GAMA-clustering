@@ -9,20 +9,27 @@ import pdb
 import scipy.optimize
 import scipy.stats
 
+from astropy.coordinates import SkyCoord
 from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table, join
+from pymoc import MOC
+import pymoc.util.catalog
+import pymoc.util.plot
 
 import util
 
 # Global parameters
 gama_data = os.environ['GAMA_DATA']
 tcfile = gama_data + 'TilingCatv46.fits'
-kcfile = gama_data + 'kcorr_dmu/v5/kcorr_auto_z01_vecv05.fits'
+kctemp = gama_data + 'kcorr_dmu/v5/kcorr_auto_z{}_vecv05.fits'
 bnfile = gama_data + 'BrightNeighbours.fits'
 ext_file = gama_data + 'GalacticExtinctionv03.fits'
 sersic_file = gama_data + 'SersicCatSDSSv09.fits'
 g3cfof = gama_data + 'g3cv9/G3CFoFGroupv09.fits'
 g3cgal = gama_data + 'g3cv9/G3CGalv08.fits'
+g3cmockfof = gama_data + 'g3cv6/G3CMockFoFGroupv06.fits'
+g3cmockgal = gama_data + 'g3cv6/G3CMockGalv06.fits'
+smfile = gama_data + 'StellarMassesLambdarv20.fits'
 
 wmax = 5.0  # max incompleteness weighting
 
@@ -41,18 +48,41 @@ comp_tab = (1.0, 1.0, 0.99, 0.97, 0.98, 0.98, 0.98, 0.97, 0.96, 0.96,
 
 metadata_conflicts = 'silent'  # Alternatives are 'warn', 'error'
 
+H0, cosmo, kz0, ez0, ev_model = 100.0, 0, 0, 0, 'z'
+
+
+def kcorr(z, kcoeff):
+    """K-correction from polynomial fit."""
+    return np.polynomial.polynomial.polyval(z - kz0, kcoeff)
+
+
+def ecorr(z, Q):
+    """e-correction."""
+    if ev_model == 'none':
+        try:
+            return np.zeros(len(z))
+        except TypeError:
+            return 0.0
+    if ev_model == 'z':
+        return Q*(z - ez0)
+    if ev_model == 'z1z':
+        return Q*z/(1+z)
+
 
 class CosmoLookup():
     """Distance and volume-element lookup tables.
     NB volume element is differential per unit solid angle."""
 
-    def __init__(self, H0, omega_l, zlimits, nz=1000):
+    def __init__(self, H0, omega_l, zlimits, P=1, nz=1000):
         cosmo = FlatLambdaCDM(H0=H0, Om0=1-omega_l)
+        self._P = P
+        self._H0 = H0
         self._zrange = zlimits
         self._z = np.linspace(zlimits[0], zlimits[1], nz)
         self._dm = cosmo.comoving_distance(self._z)
         self._dV = cosmo.differential_comoving_volume(self._z)
         self._dist_mod = cosmo.distmod(self._z)
+        print('CosmoLookup: H0={}, Omega_l={}, P={}'.format(H0, omega_l, P))
 
     def dm(self, z):
         """Comoving distance."""
@@ -74,22 +104,112 @@ class CosmoLookup():
         """Distance modulus."""
         return np.interp(z, self._z, self._dist_mod)
 
+#    def dist_mod_ke(self, z, kcoeff):
+#        """Returns the K- and e-corrected distance modulus
+#        DM(z) + k(z) - e(z)."""
+#        dm = self.dist_mod(z) + self.kcorr(z, kcoeff) - self.ecorr(z)
+#        return dm
+
+    def den_evol(self, z):
+        """Density evolution at redshift z."""
+        if ev_model == 'none':
+            try:
+                return np.ones(len(z))
+            except TypeError:
+                return 1.0
+        if ev_model == 'z':
+            return 10**(0.4*self._P*z)
+        if ev_model == 'z1z':
+            return 10**(0.4*self._P*z/(1+z))
+
+    def vol_ev(self, z):
+        """Volume element multiplied by density evolution."""
+        pz = self.dV(z) * self.den_evol(z)
+        return pz
+
+
+class Magnitude():
+    """Attributes and methods for galaxy magnitudes,
+    including individual k- and e-corrections."""
+
+    def __init__(self, app, z, kcoeff, Q=0, band='r'):
+        self.app = app
+        self.z = z
+        self.kcoeff = kcoeff
+        self.Q = Q
+        self.band = band
+        self.abs = app - cosmo.dist_mod(z) - kcorr(z, kcoeff) + ecorr(z, Q)
+
+    def app_calc(self, z):
+        """Return apparent magnitude galaxy would have at redshift z."""
+        return (self.abs + cosmo.dist_mod(z) + kcorr(z, self.kcoeff) -
+                ecorr(z, self.Q))
+
+
+class SurfaceBrightness():
+    """Attributes and methods for galaxy surface brightness,
+    including individual k- and e-corrections."""
+
+    def __init__(self, app, z, kcoeff, Q=0, band='r'):
+        self.app = app
+        self.z = z
+        self.kcoeff = kcoeff
+        self.Q = Q
+        self.band = band
+        self.abs = app - 10*np.log10(1 + z) - kcorr(z, kcoeff) + ecorr(z, Q)
+
+    def app_calc(self, z):
+        """Return apparent surface brightness galaxy would have at redshift z."""
+        return (self.abs + 10*np.log10(1 + z) + kcorr(z, self.kcoeff) -
+                ecorr(z, self.Q))
+
 
 class GalSample():
     """Attributes and methods for a galaxy sample.
     Attributes are stored as an astropy table."""
 
-    def __init__(self, Q=1, P=1, mlimits=(0, 19.8), zlimits=(0.002, 0.65),
-                 ev_model='z'):
-        self.Q = Q
-        self.P = P
+    def __init__(self, Q=1, P=1, mlimits=(0, 19.8), zlimits=(0.002, 0.65)):
         self.mlimits = mlimits
         self.zlimits = zlimits
-        self.ev_model = ev_model
         self.vol_limited = False
+        self.Q = Q
+        self.P = P
 
-    def read_gama(self, chi2max=10, nq_min=3):
+    def kcorr_fix(self, coeff, chi2max=10):
+        """Set any missing or bad k-corrs to median values."""
+
+        # Fit polynomial to median K(z) for good fits
+        t = self.t
+        nk = t[coeff].shape[1]
+    #    pdb.set_trace()
+        good = np.isfinite(np.sum(t[coeff], axis=1)) * (t['CHI2'] < chi2max)
+        zbin = np.linspace(self.zlimits[0], self.zlimits[1], 50) - kz0
+        k_array = np.polynomial.polynomial.polyval(
+            zbin, t[coeff][good].transpose())
+        k_median = np.median(k_array, axis=0)
+        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
+
+        # Set any missing or bad k-corrs to median values
+        bad = np.logical_not(good)
+        nbad = len(t[bad])
+        if nbad > 0:
+            t[coeff][bad] = self.kmean
+            print(nbad, 'missing/bad k-corrections replaced with mean')
+
+    def abs_mags(self, magname):
+        """Return absolute magnitudes corresponding to magname."""
+        mags = np.array([self.t[magname][i].abs for i in range(len(self.t))])
+        try:
+            return mags[self.use]
+        except AttributeError:
+            return mags
+
+    def read_gama(self, kcfile=kctemp.format('01'), chi2max=10, nq_min=3):
         """Reads table of basic GAMA data from tiling cat & kcorr DMU."""
+
+        global cosmo, kz0, njack, ra_jack
+        njack = 9
+        ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5)
 
         def z_comp(r_fibre):
             """Sigmoid function fit to redshift succcess given r_fibre,
@@ -97,13 +217,21 @@ class GalSample():
             p = (22.42, 2.55, 2.24)
             return (1.0/(1 + np.exp(p[1]*(r_fibre-p[0]))))**p[2]
 
+#        # GAMA selection limits
+#        def sel_mag_lo(z, galdat):
+#            """r_petro > self.mlimits[0]."""
+#            return galdat['r_petro'].app_calc(z) - self.mlimits[0]
+#
+#        def sel_mag_hi(z, galdat):
+#            """r_petro < self.mlimits[1]."""
+#            return self.mlimits[1] - galdat['r_petro'].app_calc(z)
+#
         tc_table = Table.read(tcfile)
         kc_table = Table.read(kcfile)
-        self.H0 = 100.0
-        self.omega_l = kc_table.meta['OMEGA_L']
-        self.z0 = kc_table.meta['Z0']
+        omega_l = kc_table.meta['OMEGA_L']
+        kz0 = kc_table.meta['Z0']
         self.area = kc_table.meta['AREA'] * (math.pi/180.0)**2
-        self.cosmo = CosmoLookup(self.H0, self.omega_l, self.zlimits)
+        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
         t = join(tc_table, kc_table, keys='CATAID',
                  metadata_conflicts=metadata_conflicts)
 
@@ -112,37 +240,54 @@ class GalSample():
                (t['Z_TONRY'] >= self.zlimits[0]) *
                (t['Z_TONRY'] < self.zlimits[1]))
         t = t[sel]
+        t.rename_column('Z_TONRY', 'z')
+        r_petro = [Magnitude(t['R_PETRO'][i], t['z'][i], t['PCOEFF_R'][i],
+                             Q=self.Q, band='r') for i in range(len(t))]
 
         # Copy required columns to new table
-        self.t = t['CATAID', 'RA', 'DEC', 'Z_TONRY', 'R_PETRO', 'KCORR_R',
-                   'PCOEFF_R', 'R_SB']
-        self.t.rename_column('Z_TONRY', 'z')
+        self.t = t['CATAID', 'RA', 'DEC', 'z', 'KCORR_R', 'PCOEFF_R', 'CHI2']
+        self.t['r_petro'] = r_petro
+        self.kcorr_fix('PCOEFF_R')
         self.assign_jackknife()
 
-        z = self.t['z']
-        kc = self.t['KCORR_R']
-        self.t['ABSMAG_R'] = (t['R_PETRO'] - self.cosmo.dist_mod(z) - kc +
-                              self.ecorr(z))
-        self.t['R_SB_ABS'] = (t['R_SB'] - 10*np.log10(1 + z) - kc +
-                              self.ecorr(z))
+        # colour according to Loveday+ 2012 eqn 3
+        r_abs = self.abs_mags('r_petro')
+        grcut = 0.15 - 0.03*r_abs
+        gr = (t['G_MODEL'] - t['KCORR_G']) - (t['R_MODEL'] - t['KCORR_R'])
+        self.t['colour'] = ['c']*len(t)
+        sel = (gr < grcut)
+        self.t['colour'][sel] = 'b'
+        sel = (gr >= grcut)
+        self.t['colour'][sel] = 'r'
 
-        # Fit polynomial to median K(z) for good fits
-        nk = t['PCOEFF_R'].shape[1]
-        good = np.isfinite(kc) * (t['CHI2'] < chi2max)
-        zbin = np.linspace(self.zlimits[0], self.zlimits[1], 50) - self.z0
-        k_array = np.polynomial.polynomial.polyval(
-            zbin, t['PCOEFF_R'][good].transpose())
-        k_median = np.median(k_array, axis=0)
-        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
+        # Finally calculate visibility limits and hence Vmax
+#        self.vis_calc((sel_mag_lo, sel_mag_hi))
+#        self.vmax_calc()
 
-        # Set any missing or bad k-corrs to median values
-        bad = np.logical_not(good)
-        nbad = len(z[bad])
-        if nbad > 0:
-            kc[bad] = np.polynomial.polynomial.polyval(
-                z[bad] - self.z0, self.kmean)
-            self.t['PCOEFF_R'][bad] = self.kmean
-            print(nbad, 'missing/bad k-corrections replaced with mean')
+#        z = self.t['z']
+#        kc = self.t['KCORR_R']
+#        self.t['ABSMAG_R'] = (t['R_PETRO'] - cosmo.dist_mod(z) - kc +
+#                              cosmo.ecorr(z))
+#        self.t['R_SB_ABS'] = (t['R_SB'] - 10*np.log10(1 + z) - kc +
+#                              cosmo.ecorr(z))
+
+#        # Fit polynomial to median K(z) for good fits
+#        nk = t['PCOEFF_R'].shape[1]
+#        good = np.isfinite(kc) * (t['CHI2'] < chi2max)
+#        zbin = np.linspace(self.zlimits[0], self.zlimits[1], 50) - self.kz0
+#        k_array = np.polynomial.polynomial.polyval(
+#            zbin, t['PCOEFF_R'][good].transpose())
+#        k_median = np.median(k_array, axis=0)
+#        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
+#
+#        # Set any missing or bad k-corrs to median values
+#        bad = np.logical_not(good)
+#        nbad = len(z[bad])
+#        if nbad > 0:
+#            kc[bad] = np.polynomial.polynomial.polyval(
+#                z[bad] - self.kz0, self.kmean)
+#            self.t['PCOEFF_R'][bad] = self.kmean
+#            print(nbad, 'missing/bad k-corrections replaced with mean')
 
         # Completeness weight
         imcomp = np.interp(t['R_SB'], sb_tab, comp_tab)
@@ -150,7 +295,200 @@ class GalSample():
         self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
         self.t['use'] = np.ones(len(self.t), dtype=np.bool)
 
-    def add_sersic(self):
+    def read_gama_group_mocks(self):
+        """Read gama group mocks."""
+
+#       See Robotham+2011 Sec 2.2 fopr k- and e- corrections
+        global cosmo, kz0, ez0
+        kz0 = 0.2
+        ez0 = 0
+        pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
+        self.kmean = pcoeff
+
+        gal = Table.read(g3cmockgal)
+        grp = Table.read(g3cmockfof)
+        omega_l = 0.75
+        self.area = 144 * (math.pi/180.0)**2
+        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
+        grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumBfunc']) - 11.5)
+        t = join(gal, grp, join_type='left', 
+                 metadata_conflicts=metadata_conflicts)
+#        pdb.set_trace()
+        # Select mock galaxies in given redshift range
+        sel = (t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1])
+        t = t[sel]
+        t.rename_column('Z', 'z')
+        r_petro = [Magnitude(t['Rpetro'][i], t['z'][i], pcoeff,
+                             Q=self.Q, band='r') for i in range(len(t))]
+
+        # Copy required columns to new table
+        self.t = t
+        self.t['r_petro'] = r_petro
+        self.t['PCOEFF_R'] = np.tile(pcoeff, (len(t), 1))
+        self.t['cweight'] = np.ones(len(self.t))
+        self.t['use'] = np.ones(len(self.t), dtype=np.bool)
+
+    def read_lowz(self, infile, chi2max=10, nq_min=3):
+        """Read LOWZ data."""
+
+        global cosmo, kz0, njack, ra_jack
+        ra_jack = (0, 15, 120, 160, 180, 200, 220, 240, 340, 360)
+        njack = len(ra_jack)
+
+        def z_comp(r_fibre):
+            """Sigmoid function fit to redshift succcess given r_fibre,
+            from misc.zcomp."""
+            p = (22.42, 2.55, 2.24)
+            return (1.0/(1 + np.exp(p[1]*(r_fibre-p[0]))))**p[2]
+
+        # Select galaxies in given redshift range and that satisfy LOWZ
+        # selection criteria
+        t = Table.read(infile)
+        ntot = len(t)
+        g_mod = t['MODELMAG_G']
+        r_mod = t['MODELMAG_R']
+        i_mod = t['MODELMAG_I']
+        r_cmod = t['CMODELMAGCOR_R']
+        c_par = 0.7*(g_mod - r_mod) + 1.2*(r_mod - i_mod - 0.18)
+        c_perp = np.fabs((r_mod - i_mod) - (g_mod - r_mod)/4.0 - 0.18)
+        sel = ((t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1]) *
+               (r_cmod >= self.mlimits[0]) * (r_cmod < self.mlimits[1]) *
+               (r_cmod < 13.5 + c_par/0.3) * (c_perp < 0.2))
+        t = t[sel]
+        nsel = len(t)
+        print(nsel, 'out of', ntot, 'galaxies selected')
+        t.rename_column('Z', 'z')
+
+        omega_l = t.meta['OMEGA_L']
+        kz0 = t.meta['Z0']
+        self.area = t.meta['AREA'] * (math.pi/180.0)**2
+        try:
+            self.Q = t.meta['Q']
+            self.P = t.meta['P']
+        except KeyError:
+            pass
+        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
+
+        kcorr_fix(t, 'PCOEFF_G', self.zlimits)
+        kcorr_fix(t, 'PCOEFF_R', self.zlimits)
+        kcorr_fix(t, 'PCOEFF_I', self.zlimits)
+        g_model = [Magnitude(t['MODELMAG_G'][i], t['z'][i], t['PCOEFF_G'][i],
+                             Q=self.Q, band='g') for i in range(len(t))]
+        r_model = [Magnitude(t['MODELMAG_R'][i], t['z'][i], t['PCOEFF_R'][i],
+                             Q=self.Q, band='r') for i in range(len(t))]
+        i_model = [Magnitude(t['MODELMAG_I'][i], t['z'][i], t['PCOEFF_I'][i],
+                             Q=self.Q, band='i') for i in range(len(t))]
+        r_cmodel = [Magnitude(t['CMODELMAGCOR_R'][i], t['z'][i], t['PCOEFF_R'][i],
+                              Q=self.Q, band='r') for i in range(len(t))]
+        # Copy required columns to new table
+        self.t = t['RA', 'DEC', 'z', 'PCOEFF_G', 'PCOEFF_R', 'PCOEFF_I']
+        self.t['g_model'] = g_model
+        self.t['r_model'] = r_model
+        self.t['i_model'] = i_model
+        self.t['r_cmodel'] = r_cmodel
+
+        self.assign_jackknife()
+
+        # Completeness weight
+#        imcomp = np.interp(t['R_SB'], sb_tab, comp_tab)
+#        zcomp = z_comp(t['FIBERMAG_R'])
+#        self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
+        self.t['cweight'] = np.ones(len(self.t), dtype=np.bool)
+        self.t['use'] = np.ones(len(self.t), dtype=np.bool)
+
+    def read_cmass(self, infile, chi2max=10, nq_min=3):
+        """Read CMASS data."""
+
+        global cosmo, kz0, njack, ra_jack
+        ra_jack = (0, 15, 120, 160, 180, 200, 220, 240, 340, 360)
+        njack = len(ra_jack)
+
+        def z_comp(r_fibre):
+            """Sigmoid function fit to redshift succcess given r_fibre,
+            from misc.zcomp."""
+            p = (22.42, 2.55, 2.24)
+            return (1.0/(1 + np.exp(p[1]*(r_fibre-p[0]))))**p[2]
+
+        # Select galaxies in given redshift range and that satisfy cmass
+        # selection criteria
+        t = Table.read(infile)
+        ntot = len(t)
+        g_mod = t['MODELMAG_G']
+        r_mod = t['MODELMAG_R']
+        i_mod = t['MODELMAG_I']
+        i_cmod = t['CMODELMAGCOR_I']
+        i_fib2 = t['FIBER2MAGCOR_I']
+        d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8
+        sel = ((t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1]) *
+               (i_cmod >= 17.5) * (i_cmod < 19.9) * (i_fib2 < 21.5) *
+               (i_cmod < 19.86 + 1.6(d_perp - 0.8)) * (d_perp > 0.55))
+
+        t = t[sel]
+        nsel = len(t)
+        print(nsel, 'out of', ntot, 'galaxies selected')
+        t.rename_column('Z', 'z')
+
+        omega_l = t.meta['OMEGA_L']
+        kz0 = t.meta['Z0']
+        self.area = t.meta['AREA'] * (math.pi/180.0)**2
+        try:
+            self.Q = t.meta['Q']
+            self.P = t.meta['P']
+        except KeyError:
+            pass
+        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
+
+        kcorr_fix(t, 'PCOEFF_G', self.zlimits)
+        kcorr_fix(t, 'PCOEFF_R', self.zlimits)
+        kcorr_fix(t, 'PCOEFF_I', self.zlimits)
+        g_model = [Magnitude(t['MODELMAG_G'][i], t['z'][i], t['PCOEFF_G'][i],
+                             Q=self.Q, band='g') for i in range(len(t))]
+        r_model = [Magnitude(t['MODELMAG_R'][i], t['z'][i], t['PCOEFF_R'][i],
+                             Q=self.Q, band='r') for i in range(len(t))]
+        i_model = [Magnitude(t['MODELMAG_I'][i], t['z'][i], t['PCOEFF_I'][i],
+                             Q=self.Q, band='i') for i in range(len(t))]
+        i_cmodel = [Magnitude(t['CMODELMAGCOR_I'][i], t['z'][i], t['PCOEFF_I'][i],
+                              Q=self.Q, band='i') for i in range(len(t))]
+        i_fib2 = [Magnitude(t['FIBER2MAGCOR_I'][i], t['z'][i], t['PCOEFF_I'][i],
+                            Q=self.Q, band='i') for i in range(len(t))]
+        # Copy required columns to new table
+        self.t = t['RA', 'DEC', 'z', 'PCOEFF_G', 'PCOEFF_R', 'PCOEFF_I']
+        self.t['g_model'] = g_model
+        self.t['r_model'] = r_model
+        self.t['i_model'] = i_model
+        self.t['i_cmodel'] = i_cmodel
+        self.t['i_fib2'] = i_fib2
+
+        # Finally calculate visibility limits and hence Vmax
+        self.vis_calc((sel_cmass_mag_lo, sel_cmass_mag_hi, sel_cmass_fib_mag,
+                       sel_cmass_ri, sel_cmass_mag_dperp, sel_cmass_dperp))
+        self.vmax_calc()
+        self.assign_jackknife()
+
+        # Completeness weight
+#        imcomp = np.interp(t['R_SB'], sb_tab, comp_tab)
+#        zcomp = z_comp(t['FIBERMAG_R'])
+#        self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
+        self.t['cweight'] = np.ones(len(self.t), dtype=np.bool)
+        self.t['use'] = np.ones(len(self.t), dtype=np.bool)
+
+    def area_calc(self, radius=1.0, order=6):
+        """Calculate survey area from MOC map."""
+        coords = SkyCoord(self.t['RA'], self.t['DEC'], unit='deg')
+        m = pymoc.util.catalog.catalog_to_moc(coords, radius=radius, order=order)
+        self.area = m.area
+        print('area:', m.area)
+        pymoc.util.plot.plot_moc(m)
+
+    def add_sersic_index(self):
+        """Add r-band Sersic index."""
+
+        st = Table.read(sersic_file)
+        st = st['CATAID', 'GALINDEX_r']
+        self.t = join(self.t, st, keys='CATAID', join_type='left',
+                      metadata_conflicts=metadata_conflicts)
+
+    def add_sersic_phot(self):
         """Add Sersic photometry."""
 
         st = Table.read(sersic_file)
@@ -164,7 +502,7 @@ class GalSample():
         z = t['z']
         t = join(t, st, keys='CATAID', join_type='left',
                  metadata_conflicts=metadata_conflicts)
-        t['ABSMAG_R_SERSIC'] = (t['R_SERSIC'] - self.cosmo.dist_mod(z) -
+        t['ABSMAG_R_SERSIC'] = (t['R_SERSIC'] - cosmo.dist_mod(z) -
                                 t['KCORR_R'] + self.ecorr(z))
         t['R_SB_SERSIC_ABS'] = (t['R_SB_SERSIC'] - 10*np.log10(1 + z) -
                                 t['KCORR_R'] + self.ecorr(z))
@@ -229,26 +567,28 @@ class GalSample():
         self.vmax_calc()
         self.assign_jackknife()
 
-    def select(self, sel_dict):
+    def select(self, sel_dict=None):
         """Select galaxies that satisfy criteria in sel_dict."""
 
         t = self.t
         nin = len(t)
-        use = np.ones(len(self.t), dtype=np.bool)
+        self.use = np.ones(len(self.t), dtype=np.bool)
         if sel_dict:
             for key, limits in sel_dict.items():
                 print(key, limits)
-                use *= ((t[key] >= limits[0]) * (t[key] < limits[1]))
-        t['use'] = use
-        nsel = len(t[t['use']])
+                self.use *= ((t[key] >= limits[0]) * (t[key] < limits[1]))
+        nsel = len(t[self.use])
         print(nsel, 'out of', nin, 'galaxies selected')
 
     def tsel(self):
         """Return table of selected galaxies."""
-        return self.t[self.t['use']]
+        try:
+            return self.t[self.use]
+        except AttributeError:
+            return self.t
 
-    def vis_calc(self):
-        """Add redshift visibility limits."""
+    def vis_calc_gama(self):
+        """Add redshift visibility limits for GAMA."""
 
         self.t['zlo'] = [self.zdm(self.mlimits[0] - self.t['ABSMAG_R'][i],
                          self.t['PCOEFF_R'][i])
@@ -256,6 +596,46 @@ class GalSample():
         self.t['zhi'] = [self.zdm(self.mlimits[1] - self.t['ABSMAG_R'][i],
                          self.t['PCOEFF_R'][i])
                          for i in range(len(self.t))]
+
+    def vis_calc(self, conditions):
+        """Add redshift visibility limits for sample defined by conditions."""
+
+        def z_lower(cond, galdat):
+            """Lower redshift limit from given condition."""
+            zmin = self.zlimits[0]
+            if (cond(zmin, galdat) > 0):
+                zlo = zmin
+            else:
+                try:
+                    zlo = scipy.optimize.brentq(
+                            cond, zmin, galdat['z'],
+                            args=galdat, xtol=1e-5, rtol=1e-5)
+                except ValueError:
+                    zlo = galdat['z']
+            return zlo
+
+        def z_upper(cond, galdat):
+            """Upper redshift limit from given condition."""
+            zmax = self.zlimits[1]
+            if (cond(zmax, galdat) > 0):
+                zhi = zmax
+            else:
+                try:
+                    zhi = scipy.optimize.brentq(
+                            cond, galdat['z'], zmax,
+                            args=galdat, xtol=1e-5, rtol=1e-5)
+                except ValueError:
+                    zhi = galdat['z']
+            return zhi
+
+        self.t['zlo'] = np.zeros(len(self.t))
+        self.t['zhi'] = np.zeros(len(self.t))
+        for i in range(len(self.t)):
+            galdat = self.t[i]
+            zlo = [z_lower(cond, galdat) for cond in conditions]
+            zhi = [z_upper(cond, galdat) for cond in conditions]
+            self.t['zlo'][i] = max(zlo)
+            self.t['zhi'][i] = min(zhi)
 
     def group_props(self):
         """Add group properties.
@@ -290,16 +670,56 @@ class GalSample():
         sel = t_by_group['Nmem'] >= nmin
         self.t = t_by_group[sel]
 
-    def stellar_mass(self, fluxscale=0):
+    def stellar_mass(self, fslim=(0.8, 10)):
         """Read stellar masses for GAMA."""
 
-        m = Table.read(os.environ['GAMA_DATA'] + 'StellarMassesv19.fits')
-        m['logmstar'] -= 2*math.log10(self.H0/70.0)
-        if fluxscale:
+        m = Table.read(smfile)
+        m['logmstar'] -= 2*math.log10(cosmo._H0/70.0)
+        if fslim:
+            sel = (m['fluxscale'] >= fslim[0]) * (m['fluxscale'] < fslim[1])
+            print(len(m[sel]), 'out of', len(m),
+                  'galaxies with fluxscale in range', fslim)
+            m = m[sel]
             m['logmstar'] += np.log10(m['fluxscale'])
-        m = m['CATAID', 'logmstar']
+        m['sm_g_r'] = m['absmag_g'] - m['absmag_r']
+
+        # intrinsic g-i colour cut
+        gicut = 0.07*m['logmstar'] - 0.03
+        gi = m['gminusi_stars']
+        m['gi_colour'] = ['c']*len(m)
+        sel = (gi < gicut)
+        m['gi_colour'][sel] = 'b'
+        sel = (gi >= gicut)
+        m['gi_colour'][sel] = 'r'
+
+        m = m['CATAID', 'logmstar', 'sm_g_r', 'gminusi_stars', 'gi_colour']
         self.t = join(self.t, m, keys='CATAID',
                       metadata_conflicts=metadata_conflicts)
+
+    def smf_comp(self, Mlim, dm=0.1, magname='r_petro', pc=95):
+        """Return stellar mass limit that is pc percent complete to given
+        absolute magnitude limit.  Uses full sample to maximize number of
+        galaxies with M = Mlim +- dm."""
+
+        t = self.t
+        mags = np.array([t[magname][i].abs for i in range(len(t))])
+        try:
+            mass_lim = []
+            for mag in Mlim:
+                sel = (mag - dm <= mags) * (mags < mag + dm)
+                if len(mags[sel]) > 0:
+                    mass_lim.append(np.percentile(t['logmstar'][sel], pc))
+                else:
+                    mass_lim.append(0)
+
+        except TypeError:
+            sel = (Mlim - dm <= mags) * (mags < Mlim + dm)
+            if len(mags[sel]) > 0:
+                mass_lim = np.percentile(t['logmstar'][sel], pc)
+            else:
+                mass_lim = 0
+#        pdb.set_trace()
+        return mass_lim
 
     def specline_props(self, infile='GaussFitSimplev05.fits', snt=3):
         """Add SpecLineSFR DMU properties.
@@ -425,23 +845,25 @@ class GalSample():
         self.t = join(self.t, vm_table, keys='CATAID',
                       metadata_conflicts=metadata_conflicts)
 
-    def vmax_calc(self, denfile=gama_data+'radial_density.fits'):
+    def vmax_calc_old(self, denfile=gama_data+'radial_density.fits'):
         """Calculate standard and density-corrected Vmax values."""
 
-        den_table = Table.read(denfile)
-        nz = den_table.meta['NZ']
-        zmin = den_table.meta['ZMIN']
-        zmax = den_table.meta['ZMAX']
-        H0 = den_table.meta['H0']
-        omega_l = den_table.meta['OMEGA_L']
-        cosmo = CosmoLookup(H0, omega_l, (zmin, zmax))
-
-        zhist, bin_edges = np.histogram(self.t['z'], nz, (zmin, zmax),
-                                        weights=self.t['cweight'])
+        zmin, zmax = self.zlimits
+        print(zmin, zmax)
+        nz = 100
+        zstep = (zmax - zmin) / nz
+        den = Table()
+        den['zbin'] = np.linspace(zmin, zmax, nz) + 0.5*zstep
+        den['delta_av'] = np.ones(nz)
+        if denfile:
+            # Interpolate tabulated density fluctuations onto above z grid
+            den_table = Table.read(denfile)
+            den['delta_av'] = np.interp(
+                    den['zbin'], den_table['zbin'], den_table['delta_av'])
+        bin_edges = np.linspace(zmin, zmax, nz+1)
         zstep = bin_edges[1] - bin_edges[0]
         V_int = self.area / 3.0 * cosmo.dm(bin_edges)**3
         V = np.diff(V_int)
-#        pdb.set_trace()
 
         # Arrays S_obs and S_vis contain volume-weighted fraction of
         # redshift bin iz in which galaxy igal lies and is visible.
@@ -452,24 +874,68 @@ class GalSample():
         S_vis = np.zeros((nz, ngal))
 
         for igal in range(ngal):
-            ilo = min(nz-1, int((self.t['zlo'][igal] - zmin) / zstep))
-            ihi = min(nz-1, int((self.t['zhi'][igal] - zmin) / zstep))
-            iob = min(nz-1, int((self.t['z'][igal] - zmin) / zstep))
+            ilo = max(0, min(nz-1, int((self.t['zlo'][igal] - zmin) / zstep)))
+            ihi = max(0, min(nz-1, int((self.t['zhi'][igal] - zmin) / zstep)))
+            iob = max(0, min(nz-1, int((self.t['z'][igal] - zmin) / zstep)))
             S_obs[ilo+1:iob, igal] = 1
             S_vis[ilo+1:ihi, igal] = 1
-            Vp = V_int[ilo+1] - afac*self.cosmo.dm(self.t['zlo'][igal])**3
+#            pdb.set_trace()
+            Vp = V_int[ilo+1] - afac*cosmo.dm(self.t['zlo'][igal])**3
             S_obs[ilo, igal] = Vp/V[ilo]
             S_vis[ilo, igal] = Vp/V[ilo]
-            Vp = afac*self.cosmo.dm(self.t['z'][igal])**3 - V_int[iob]
+            Vp = afac*cosmo.dm(self.t['z'][igal])**3 - V_int[iob]
             S_obs[iob, igal] = Vp/V[ihi]
-            Vp = afac*self.cosmo.dm(self.t['zhi'][igal])**3 - V_int[ihi]
+            Vp = afac*cosmo.dm(self.t['zhi'][igal])**3 - V_int[ihi]
             S_vis[ihi, igal] = Vp/V[ihi]
 
-        Pz = self.den_evol(den_table['zbin'])
+        Pz = cosmo.den_evol(den['zbin'])
         self.t['Vmax_raw'] = np.dot(V, S_vis)
-        self.t['Vmax_dc'] = np.dot(den_table['delta_av'] * V, S_vis)
+        self.t['Vmax_dc'] = np.dot(den['delta_av'] * V, S_vis)
         self.t['Vmax_ec'] = np.dot(Pz * V, S_vis)
-        self.t['Vmax_dec'] = np.dot(den_table['delta_av'] * Pz * V, S_vis)
+        self.t['Vmax_dec'] = np.dot(den['delta_av'] * Pz * V, S_vis)
+
+    def vmax_calc(self, denfile=gama_data+'radial_density.fits'):
+        """Calculate standard and density-corrected Vmax values."""
+
+        zmin, zmax = self.zlimits
+        nz = 100
+        zbins = np.linspace(zmin, zmax, nz)
+        Vmax_raw = np.zeros(nz)
+        Vmax_ec = np.zeros(nz)
+        Vmax_dc = np.zeros(nz)
+        Vmax_dec = np.zeros(nz)
+        if denfile:
+            den = Table.read(denfile)
+
+        afac = self.area
+        for iz in range(1, nz):
+            zlo, zhi = zbins[iz-1], zbins[iz]
+            V, err = scipy.integrate.quad(
+                    cosmo.dV, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+            Vmax_raw[iz] = Vmax_raw[iz-1] + V
+            V, err = scipy.integrate.quad(
+                    cosmo.vol_ev, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+            Vmax_ec[iz] = Vmax_ec[iz-1] + V
+            if denfile:
+                V, err = scipy.integrate.quad(
+                        lambda z: cosmo.dV(z) *
+                        np.interp(z, den['zbin'], den['delta_av']),
+                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+                Vmax_dc[iz] = Vmax_dc[iz-1] + V
+                V, err = scipy.integrate.quad(
+                        lambda z: cosmo.vol_ev(z) *
+                        np.interp(z, den['zbin'], den['delta_av']),
+                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+                Vmax_dec[iz] = Vmax_dec[iz-1] + V
+
+        self.t['Vmax_raw'] = np.interp(self.t['zhi'], zbins, afac*Vmax_raw)
+        self.t['Vmax_ec'] = np.interp(self.t['zhi'], zbins, afac*Vmax_ec)
+        if denfile:
+            self.t['Vmax_dc'] = np.interp(self.t['zhi'], zbins, afac*Vmax_dc)
+            self.t['Vmax_dec'] = np.interp(self.t['zhi'], zbins, afac*Vmax_dec)
+        else:
+            self.t['Vmax_dc'] = self.t['Vmax_raw']
+            self.t['Vmax_dec'] = self.t['Vmax_ec']
 
     def ran_z_gen(self, nfac):
         """Generate random redshifts nfac times larger than gal catalogue."""
@@ -488,88 +954,109 @@ class GalSample():
             j += ndup
         return zran
 
-    def vol_limit(self, Mlim):
+    def Mvol(self, mlim, zlim, kc_col='PCOEFF_R', pc=95):
+        """Return absolute magnitude corresponding to given redshift that will
+        give a volume-limited sample complete to pc percent."""
+
+        # Construct array of k(zlim) for selected subsample
+        t = self.tsel()
+        kcorr = np.polynomial.polynomial.polyval(zlim - kz0, t[kc_col].T)
+
+        # Required percentile of kcorr distribution
+        k = np.percentile(kcorr, pc)
+
+        return (mlim - cosmo.dist_mod(zlim) - k + ecorr(zlim, self.Q))
+
+    def vol_limit(self, Mlim, colname='r_petro'):
         """Select volume-limited sample."""
 
-        def Mvol(zlim):
-            """Returns abs mag corresponding to given redshift for
-            volume-limited sample."""
-            # Take K-corr as 95-percentile of objects nearby in redshift
-            # (larger K-corr --> brighter Mag)
-            dz = 0.01
-            idx = (z > zlim - dz)*(z < zlim + dz)
-            k = scipy.stats.scoreatpercentile(kc[idx], 95)
-            return mlim - self.cosmo.dist_mod(zlim) - k + self.Q*(zlim-self.z0)
-
-#        pdb.set_trace()
         self.vol_limited = True
         mlim = self.mlimits[1]
         z = self.t['z']
-        kc = self.t['KCORR_R']
 
         zmax = min(np.max(z), self.zlimits[1])
-        if Mvol(zmax) - Mlim > 0:
+        if self.Mvol(mlim, zmax) - Mlim > 0:
             zlim = zmax
         else:
             zlim = scipy.optimize.brentq(
-                lambda z: Mvol(z) - Mlim, self.zlimits[0], zmax,
+                lambda z: self.Mvol(mlim, z) - Mlim, self.zlimits[0], zmax,
                 xtol=1e-5, rtol=1e-5)
         self.zlim = zlim
-        self.t = self.t[(z < zlim) * (self.t['ABSMAG_R'] < Mlim)]
+        self.t = self.t[(z < zlim) * (self.abs_mags(colname) < Mlim)]
 
     def zdm(self, dmod, kcoeff):
         """Calculate redshift z corresponding to distance modulus dmod, solves
-        dmod = m - M = DM(z) + K(z) - Q(z-z0),
+        dmod = m - M = DM(z) + K(z) - e(z),
         ie. including k-correction and luminosity evolution Q.
         z is constrained to lie in range self.zlimits."""
 
-        def dmodk(z, kcoeff):
-            """Returns the K- and e-corrected distance modulus
-            DM(z) + k(z) - e(z)."""
-            dm = self.cosmo.dist_mod(z) + self.kcorr(z, kcoeff) - self.ecorr(z)
-            return dm
-
-        if dmodk(self.zlimits[0], kcoeff) - dmod > 0:
+        if cosmo.dist_mod_ke(self.zlimits[0], kcoeff) - dmod > 0:
             return self.zlimits[0]
-        if dmodk(self.zlimits[1], kcoeff) - dmod < 0:
+        if cosmo.dist_mod_ke(self.zlimits[1], kcoeff) - dmod < 0:
             return self.zlimits[1]
-        z = scipy.optimize.brentq(lambda z: dmodk(z, kcoeff) - dmod,
+        z = scipy.optimize.brentq(lambda z:
+                                  cosmo.dist_mod_ke(z, kcoeff) - dmod,
                                   self.zlimits[0], self.zlimits[1],
                                   xtol=1e-5, rtol=1e-5)
         return z
 
-    def kcorr(self, z, kcoeff):
-        """K-correction from polynomial fit."""
-        return np.polynomial.polynomial.polyval(z - self.z0, kcoeff)
+    def z_s_S(self, smod, kcoeff):
+        """Calculate redshift of galaxy with SB 'distance modulus'
+        smod = s - S = 10*lg(1+z) + K(z) - e(z)."""
 
-    def ecorr(self, z):
-        """e-correction."""
-        assert self.ev_model in ('z', 'z1z')
-        if self.ev_model == 'z':
-            return self.Q*(z - self.z0)
-        if self.ev_model == 'z1z':
-            return self.Q*z/(1+z)
+        def smodk(z, kcoeff):
+            """Returns SB 'distance modulus'10*lg(1+z) + K(z) - e(z)."""
+            return 10*math.log10(1+z) + self.kcorr(z, kcoeff) - self.ecorr(z)
 
-    def den_evol(self, z):
-        """Density evolution at redshift z."""
-        assert self.ev_model in ('z', 'z1z')
-        if self.ev_model == 'z':
-            return 10**(0.4*self.P*z)
-        if self.ev_model == 'z1z':
-            return 10**(0.4*self.P*z/(1+z))
+        if smodk(self.zlimits[0], kcoeff) - smod > 0:
+            return self.zlimits[0]
+        if smodk(self.zlimits[1], kcoeff) - smod < 0:
+            return self.zlimits[1]
+        z = scipy.optimize.brentq(lambda z: smodk(z, kcoeff) - smod,
+                                  self.zlimits[0], self.zlimits[1],
+                                  xtol=1e-5, rtol=1e-5)
+        return z
 
-    def vol_ev(self, z):
-        """Volume element multiplied by density evolution."""
-        pz = self.cosmo.dV(z) * self.den_evol(z)
-        return pz
 
-    def assign_jackknife(self):
+#    def kcorr(self, z, kcoeff):
+#        """K-correction from polynomial fit."""
+#        return np.polynomial.polynomial.polyval(z - self.z0, kcoeff)
+#
+#    def ecorr(self, z):
+#        """e-correction."""
+#        if self.ev_model == 'none':
+#            return np.zeros(len(z))
+#        if self.ev_model == 'z':
+#            return self.Q*(z - self.z0)
+#        if self.ev_model == 'z1z':
+#            return self.Q*z/(1+z)
+#
+#    def den_evol(self, z):
+#        """Density evolution at redshift z."""
+#        if self.ev_model == 'none':
+#            return np.ones(len(z))
+#        if self.ev_model == 'z':
+#            return 10**(0.4*self.P*z)
+#        if self.ev_model == 'z1z':
+#            return 10**(0.4*self.P*z/(1+z))
+#
+#    def vol_ev(self, z):
+#        """Volume element multiplied by density evolution."""
+#        pz = cosmo.dV(z) * self.den_evol(z)
+#        return pz
+
+    def assign_jackknife(self, verbose=1):
         """Add jackknife regions to table."""
         t = self.t
         t['jack'] = np.zeros(len(t), dtype=int)
+        if verbose:
+            print('Galaxies in each jackknife region:')
+#        pdb.set_trace()
         for jack in range(njack):
             idx = (t['RA'] >= ra_jack[jack]) * (t['RA'] < ra_jack[jack] + 4.0)
             self.t['jack'][idx] = jack
+            if verbose:
+                print(len(self.t['jack'][idx]))
 
     def xi_output(self, outfile, binning, theta_max, J3_pars):
         """Output the galaxy or random data for xi.c v 2.1 in single cell."""
@@ -581,7 +1068,7 @@ class GalSample():
         cellsize = 100.0
         tu = self.tsel()
         nobj = len(tu)
-        r = self.cosmo.dm(tu['z'])
+        r = cosmo.dm(tu['z'])
         ra = np.array(tu['RA'])
         dec = np.array(tu['DEC'])
         x = r*np.cos(np.deg2rad(ra))*np.cos(np.deg2rad(dec))

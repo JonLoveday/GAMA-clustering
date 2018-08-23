@@ -3,6 +3,11 @@
 from __future__ import division
 
 import math
+from matplotlib.projections import PolarAxes
+from matplotlib.transforms import Affine2D
+import mpl_toolkits.axisartist.floating_axes as floating_axes
+import mpl_toolkits.axisartist.angle_helper as angle_helper
+from mpl_toolkits.axisartist.grid_finder import MaxNLocator
 import numpy as np
 import os
 import pdb
@@ -798,4 +803,78 @@ def pdfsave(pdf):
     plt.draw()
     if pdf:
         pdf.savefig()
+    plt.show()
+
+
+def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
+              reg_range=(0, 3), plot_dir='./', plot_file=None,
+              plot_size=(12, 8), my_dpi=96, ireal=0):
+    """GAMA cone plots"""
+
+    def setup_axes(fig, rect, extremes):
+        """Axes for a GAMA region"""
+
+        # rotate a bit for better orientation
+        tr_rotate = Affine2D().translate(-0.5*(extremes[0] + extremes[1]), 0)
+
+        # scale degree to radians
+        tr_scale = Affine2D().scale(np.pi/180., 1.)
+
+        tr = tr_rotate + tr_scale + PolarAxes.PolarTransform()
+
+        grid_locator1 = MaxNLocator(5)
+
+        grid_locator2 = MaxNLocator(5)
+
+        grid_helper = floating_axes.GridHelperCurveLinear(
+            tr, extremes=extremes,
+            grid_locator1=grid_locator1,
+            grid_locator2=grid_locator2)
+
+        ax1 = floating_axes.FloatingSubplot(fig, rect, grid_helper=grid_helper)
+        fig.add_subplot(ax1)
+
+        # adjust axis
+        ax1.axis["left"].set_axis_direction("bottom")
+        ax1.axis["right"].set_axis_direction("top")
+
+        ax1.axis["bottom"].set_visible(False)
+        ax1.axis["top"].set_axis_direction("bottom")
+        ax1.axis["top"].toggle(ticklabels=True, label=True)
+        ax1.axis["top"].major_ticklabels.set_axis_direction("top")
+        ax1.axis["top"].label.set_axis_direction("top")
+
+        ax1.axis["left"].label.set_text(r'z')
+        ax1.axis["top"].label.set_text('RA')
+
+        # create a parasite axes whose transData in RA, z
+        aux_ax = ax1.get_aux_axes(tr)
+
+        aux_ax.patch = ax1.patch # for aux_ax to have a clip path as in ax
+        ax1.patch.zorder=0.9     # but this has a side effect that the patch is
+                                 # drawn twice, and possibly over some other
+                                 # artists. So, we decrease the zorder a bit to
+                                 # prevent this.
+
+        return ax1, aux_ax
+
+    ra_limits = ((129, 141), (174, 186), (211.5, 223.5))
+    dec_limits = ((-2, 3), (-3, 2), (-2, 3))
+    rect = (311, 312, 313)
+    label = ('G09', 'G12', 'G15')
+
+    fig = plt.figure(1, figsize=plot_size, dpi=my_dpi)
+    fig.clf()
+    fig.subplots_adjust(hspace=0.2, left=0.05, right=0.95)
+
+    for ireg in range(*reg_range):
+        ax, aux_ax = setup_axes(fig, rect[ireg], ra_limits[ireg] + z_limits)
+        sel = ((ra >= ra_limits[ireg][0]) * (ra <= ra_limits[ireg][1]) *
+               (dec >= dec_limits[ireg][0]) * (dec <= dec_limits[ireg][1]))
+        aux_ax.scatter(ra[sel], z[sel], s=size[sel], c=clr[sel], alpha=alpha)
+        ax.text(0.05, 0.7, label[ireg], transform=ax.transAxes)
+
+    plt.draw()
+    if plot_file:
+        plt.savefig(plot_dir + plot_file, dpi=my_dpi, bbox_inches='tight')
     plt.show()
