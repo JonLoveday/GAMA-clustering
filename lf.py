@@ -12,14 +12,27 @@ import pickle
 import scipy.special
 
 from astLib import astSED
+from astropy.modeling import models, fitting
 from astropy.table import Table, join
 import healpy as hp
+from sherpa.data import Data1D
+from sherpa.utils.err import EstErr
+from sherpa.fit import Fit
+from sherpa.optmethods import LevMar, NelderMead
+from sherpa.stats import Chi2
+from sherpa.estmethods import Confidence
+from sherpa.plot import IntervalProjection, RegionProjection
+
 
 import gal_sample as gs
+from schec import SchecMag
 import util
 
 # Global parameters
 lf_data = os.environ['LF_DATA']
+mag_label = r'$^{0.1}M_r - 5 \log_{10} h$'
+ms_label = r'$\log_{10}\ ({\cal M}_*/{\cal M}_\odot h^{-2})$'
+lf_label = r'$\phi(M)\ [h^3\ {\rm Mpc}^{-3}\ {\rm mag}^{-1}]$'
 
 # Constants
 ln10 = math.log(10)
@@ -128,17 +141,92 @@ def sel_cmass_dperp(z, galdat):
     return d_perp - 0.55
 
 
-def lfr(outfile='lfr.dat',
-        colname='r_petro', Mmin=-25, Mmax=-12, nbin=26, zmin=0.002, zmax=0.65,
-        clean_photom=1, use_wt=1):
+def lfr(outfile='lfr.pkl', colname='r_petro', clrname='gi_colour',
+        bins=np.linspace(-25, -12, 26), Mmin_fit=-24, Mmax_fit=-17,
+        p0=(-1, -21, -2), zlimits=(0.002, 0.65), error='jackknife'):
     """r-band LF using density-corrected Vmax."""
 
     samp = gs.GalSample()
     samp.read_gama()
+    samp.stellar_mass()
+    samp.add_sersic_index()
     samp.vis_calc((sel_gama_mag_lo, sel_gama_mag_hi))
     samp.vmax_calc()
-    lf = LF(samp, colname)
-    lf.plot(finish=True)
+    lf_dict = {}
+    lf = LF(samp, colname, bins, error=error)
+#    lf.fn_fit(fn=lf.Schechter_mag, Mmin=Mmin_fit, Mmax=Mmax_fit, p0=p0)
+    lf_dict['all'] = lf
+#    lf.plot(finish=True)
+
+    for colour in 'br':
+        clr_limits = ('a', 'z')
+        if (colour == 'b'):
+            clr_limits = ('b', 'c')
+        if (colour == 'r'):
+            clr_limits = ('r', 's')
+        sel_dict = {clrname: clr_limits}
+        samp.select(sel_dict)
+        lf = LF(samp, colname, bins, error=error, sel_dict=sel_dict)
+        lf_dict[colour] = lf
+
+    for lbl, sersic_lims in zip(['nlo', 'nhi'], [[0, 1.9], [1.9, 30]]):
+        sel_dict = {'GALINDEX_r': sersic_lims}
+        samp.select(sel_dict)
+        lf = LF(samp, colname, bins, error=error, sel_dict=sel_dict)
+#        lf.fn_fit(fn=lf.Schechter_mag, Mmin=Mmin_fit, Mmax=Mmax_fit, p0=p0)
+        lf_dict[lbl] = lf
+
+    pickle.dump(lf_dict, open(outfile, 'wb'))
+
+
+def plot(infile, lf_lims=(-15, -23.5, 1e-7, 0.1), nmin=5, fn=SchecMag(),
+         p0=(-1, -21, -2), Mmin_fit=-24, Mmax_fit=-17,
+         plot_file='/Users/loveday/Documents/tex/papers/gama/groupLF/lf_field.pdf',
+         plot_size=(6, 3)):
+    """Plot LFs."""
+
+    fn.alpha = p0[0]
+    fn.Mstar = p0[1]
+    fn.lgps = p0[2]
+
+    lf_dict = pickle.load(open(infile, 'rb'))
+    plt.clf()
+    fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, num=1)
+    fig.set_size_inches(plot_size)
+    fig.subplots_adjust(left=0, bottom=0.0, hspace=0.0, wspace=0.0)
+    plt.semilogy(basey=10, nonposy='clip')
+    ax = axes[0]
+    ax.axis(lf_lims)
+    ax.set_xlabel(mag_label)
+    ax.set_ylabel(lf_label)
+    phi = lf_dict['all']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='k', label='All')
+    phi = lf_dict['b']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='b', label='Blue')
+    phi = lf_dict['r']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='r', label='Red')
+    ax.legend()
+
+    ax = axes[1]
+    ax.axis(lf_lims)
+    ax.set_xlabel(mag_label)
+    phi = lf_dict['all']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='k', label='All')
+    phi = lf_dict['nlo']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='b', label='low-n')
+    phi = lf_dict['nhi']
+    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
+    phi.plot(ax=ax, nmin=nmin, clr='r', label='high-n')
+    ax.legend()
+
+    plt.draw()
+    plt.savefig(plot_file, bbox_inches='tight')
+    plt.show()
 
 
 def fortuna(outfile='lf_fortuna.dat',
@@ -180,7 +268,7 @@ def fortuna(outfile='lf_fortuna.dat',
 
 
 def lf_lowz(infile='lowz_kcorrz00.fits', outtemp='lf_lowz_{}_{}.dat',
-         colname='r_cmodel', mlimits=(16, 19.6), Mmin=-24, Mmax=-21, nbin=15):
+            colname='r_cmodel', mlimits=(16, 19.6), Mmin=-24, Mmax=-21, nbin=15):
     """r-band LF for LOWZ galaxy samples."""
 
     for zlimits in ((0.16, 0.36), (0.16, 0.26), (0.26, 0.36)):
@@ -219,7 +307,7 @@ def lf_lowz(infile='lowz_kcorrz00.fits', outtemp='lf_lowz_{}_{}.dat',
 
 
 def lf_cmass(infile='cmass_kcorrz00.fits', outtemp='lf_cmass_{}_{}.dat',
-         colname='r_cmodel', mlimits=(17.5, 19.9), Mmin=-24, Mmax=-21, nbin=15):
+colname='r_cmodel', mlimits=(17.5, 19.9), Mmin=-24, Mmax=-21, nbin=15):
     """r-band LF for LOWZ galaxy samples."""
 
     for zlimits in ((0.16, 0.36), (0.16, 0.26), (0.26, 0.36)):
@@ -299,45 +387,6 @@ def smf(outfile='smf.dat',
         Mkey = 'z{}'.format(iz)
         lf_dict[Mkey] = lf
     pickle.dump(lf_dict, open(outfile, 'wb'))
-
-
-def smf_comp(infile='smf.dat', lf_lims=(7, 12.5, 1e-7, 0.1),
-             plot_file='smf_comp.pdf', plot_size=(12, 14), nmin=2,
-             xlabel=r'$^{0.1}M_r - 5 \log_{10} h$',
-             ylabel=r'$\phi(M)\ [h^3\ {\rm Mpc}^{-3}\ {\rm mag}^{-1}]$'):
-    """Compare z < 0.1 field galaxy SMF with Baldry+2012 & Wright+2017 dbl
-    Schechter fits."""
-
-    h = 0.7
-#    h = 1
-    wright = (10.78 + 2*math.log10(h), -0.62, -1.50, 2.93e-3/h**3, 0.63e-3/h**3)
-    baldry = (10.66 + 2*math.log10(h), -0.35, -1.47, 3.96e-3/h**3, 0.79e-3/h**3)
-    lf_dict = pickle.load(open(infile, 'rb'))
-    plt.clf()
-    ax = plt.subplot(111)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.semilogy(basey=10, nonposy='clip')
-    phi = lf_dict['all']
-    phi.plot(ax=ax, nmin=nmin, show_fit=False, clr='b', label='All GAMA')
-    phi = lf_dict['z0']
-    phi.plot(ax=ax, nmin=nmin, show_fit=False, clr='g', label='z < 0.1')
-    bdat = np.loadtxt(lf_data + '/Baldry2012/table1.txt')
-    logM = bdat[:, 0] + 2*math.log10(h)
-    phi = bdat[:, 2]/1000/h**3
-    phi_err = bdat[:, 3]/1000/h**3
-    plt.errorbar(logM, phi, phi_err, label='Baldry 2012')
-    logM = np.linspace(lf_lims[0], lf_lims[1], 100)
-    phi = Schechter_dbl_mass(logM, baldry)
-    print(phi)
-    plt.plot(logM, phi, label='Baldry 2012')
-    phi = Schechter_dbl_mass(logM, wright)
-    plt.plot(logM, phi, label='Wright 2017')
-    plt.axis(lf_lims)
-    plt.legend()
-#    plt.draw()
-#    plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-    plt.show()
 
 
 def blf_test(outfile='blf.dat',
@@ -443,45 +492,23 @@ def plot_samples(samp, selcol, bins, label_template, lfcol='r_petro',
     plt.show()
 
 
-def gaussian(M, pars):
-    mu, sigma, norm = pars[0], pars[1], 10**pars[2]
-    return norm * np.exp(-(M - mu)**2) / (2 * sigma**2)
-
-
-def Schechter_mag(M, pars):
-    alpha, Mstar, phistar = pars[0], pars[1], 10**pars[2]
-    L = 10**(0.4*(Mstar-M))
-    schec = 0.4*ln10*phistar*L**(alpha+1)*np.exp(-L)
-    return schec
-
-
-def Schechter_mass(logM, pars):
-    alpha, logMstar, phistar = pars[0], pars[1], 10**pars[2]
-    M = 10**logM/10**logMstar
-    schec = phistar*M**(alpha+1)*np.exp(-M)
-    return schec
-
-
-def Schechter_dbl_mass(logM, pars):
-    logMstar, alpha1, alpha2, ps1, ps2 = pars
-    M = 10**logM/10**logMstar
-    return np.exp(-M) * (ps1*M**alpha1 + ps2*M**alpha2)
-
-
 class LF():
     """LF data and methods."""
 
-    def __init__(self, samp, colname, Mmin=-25, Mmax=-12, nbin=26, norm=1,
+    def __init__(self, samp, colname, bins, norm=1,
                  Vmax='Vmax_dec', error='Poisson', sel_dict='None'):
         """Initialise new LF instance from specified table and column."""
 
         self.sel_dict = sel_dict
         self.error = error
 
-        self.Mmin, self.Mmax, self.nbin = Mmin, Mmax, nbin
-        bins = np.linspace(Mmin, Mmax, nbin+1)
+        self.bins = bins
+        nbin = len(bins) - 1
         self.Mbin = bins[:-1] + 0.5*np.diff(bins)
         self.comp = np.ones(nbin, dtype=bool)
+        self.comp_min = bins[0]
+        self.comp_max = bins[-1]
+
         if colname == 'logmstar':
             absval = samp.tsel()[colname]
         else:
@@ -504,7 +531,6 @@ class LF():
             self.phi = np.mean(self.phi_jack, axis=0)
             self.phi_err = np.std(self.phi_jack, axis=0)
         else:
-#            pdb.set_trace()
             self.ngal, edges = np.histogram(absval, bins)
             self.phi, edges = np.histogram(absval, bins, weights=wt)
             self.phi *= norm/np.diff(bins)
@@ -525,18 +551,19 @@ class LF():
 
     def comp_limits(self, samp, zlo, zhi):
         """Set completeness limits in magnitude (Loveday+2012 sec 3.3)."""
-        Mbright = samp.Mvol(samp.mlimits[0], zhi)
-        Mfaint = samp.Mvol(samp.mlimits[1], zlo)
-        self.comp *= (Mbright <= self.Mbin) * (self.Mbin < Mfaint)
-        print('Mag completeness limits:', Mbright, Mfaint)
+        self.comp_min = samp.Mvol(samp.mlimits[0], zhi)
+        self.comp_max = samp.Mvol(samp.mlimits[1], zlo)
+        self.comp *= (self.comp_min <= self.Mbin) * (self.Mbin < self.comp_max)
+        print('Mag completeness limits:', self.comp_min, self.comp_max)
 
     def comp_limit_mass(self, samp, zlo):
-        """Set 95 percent mass completeness at given Mag limit.
-        Linear fit comes from group_lf.gal_mass_lum()"""
-        Mlim = samp.Mvol(samp.mlimits[1], zlo)
-        mass_comp = 0.755 - 0.525*Mlim
-        self.comp *= (self.Mbin >= mass_comp)
-        print('Mlim, Mass completeness limit:', Mlim, mass_comp)
+        """Mass completeness at given redshift.  Uses results from
+        group_lf.gal_mass_z"""
+        p = [1.17442222,  29.68880365, -22.58489171]
+        a = 1/(1 + zlo)
+        self.comp_min = np.polynomial.polynomial.polyval(a, p)
+        self.comp *= (self.Mbin >= self.comp_min)
+        print('Mass completeness limit:', self.comp_min)
 
     def write(self, f, label):
         """Output to specified file."""
@@ -546,53 +573,27 @@ class LF():
                 print(self.Mbin[i], self.ngal[i], self.phi[i], self.phi_err[i],
                       file=f)
 
-    def sum(self, Mlimits):
-        """Sum LF over supplied bin limits."""
-        nbin = len(Mlimits) - 1
-        Mcen, phis, phis_err = np.zeros(nbin), np.zeros(nbin), np.zeros(nbin)
-        phis_jack = np.zeros(self.njack)
-        for im in range(nbin):
-            mlo = Mlimits[im]
-            mhi = Mlimits[im+1]
-            sel = (mlo <= self.Mbin) * (self.Mbin < mhi)
-            if self.ngal[sel].sum() > 0:
-                Mcen[im] = np.average(self.Mbin[sel], weights=self.ngal[sel])
-            else:
-                Mcen[im] = 0
-            phi_err = self.phi_err[sel]
-            phi_err[phi_err <= 0] = math.inf
-            ivar = phi_err**-2
-            ivsum = ivar.sum()
-            phis[im] = np.dot(self.phi[sel], ivar)/ivsum
-            phis_err[im] = ivsum**-0.5
-
-#            for jack in range(self.njack):
-#                phis_jack[jack] = np.dot(self.phi_jack[jack, sel], ivar)/ivsum
-#            if self.error == 'jackknife':
-#                phis_err[im]= np.sqrt((self.njack-1) * np.var(phis_jack, axis=0))
-#            if self.error == 'mock':
-#                phis_err[im] = np.std(phis_jack, axis=0)
-#            pdb.set_trace()
-        return Mcen, phis, phis_err
-
-    def fn_fit(self, fn=Schechter_mag, p0=(-1, -20, -2.5),
-               Mmin=None, Mmax=None):
+    def fn_fit_old(self, fn=None, p0=(-1, -20, -2.5),
+               Mmin=None, Mmax=None, verbose=0):
         """Fit specfied function."""
 
-        self.fn = fn
-        if Mmin * Mmax:
+        if fn:
+            self.fn = fn
+        else:
+            self.fn = self.Schechter_mag
+        if (Mmin and Mmax):
             self.Mmin_fit = Mmin
             self.Mmax_fit = Mmax
         else:
-            self.Mmin_fit = self.Mmin
-            self.Mmax_fit = self.Mmax
+            self.Mmin_fit = self.comp_min
+            self.Mmax_fit = self.comp_max
         idx = (self.comp * (self.phi_err > 0) *
                (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
         self.ndof = len(self.Mbin[idx]) - 3
-        res = scipy.optimize.fmin(
-                lf_resid, p0, (fn, self.Mbin, self.phi, self.phi_err, Mmin, Mmax),
-                xtol=0.001, ftol=0.001, full_output=1, disp=0)
-        print(res)
+        res = scipy.optimize.fmin(self.lf_resid, p0, xtol=0.001, ftol=0.001,
+                                  full_output=1, disp=0)
+        if verbose:
+            print(res)
         self.fit_par = res[0]
         self.chi2 = res[1]
         warnflag = res[4]
@@ -601,17 +602,188 @@ class LF():
         fit_jack = []
         for jack in range(self.njack):
             res = scipy.optimize.fmin(
-                    lf_resid, res[0],
-                    (fn, self.Mbin, self.phi_jack[jack, :], self.phi_err),
+                    self.lf_resid, res[0], args=(jack,),
                     xtol=0.001, ftol=0.001, full_output=1, disp=0)
             fit_jack.append(res[0])
         self.fit_err = np.std(fit_jack, axis=0)
         if self.error == 'jackknife':
             self.fit_err *= np.sqrt(self.njack-1)
 
-    def like_cont(self, ax=None, label=None, lc_step=32, lc_limits=4,
-                  dchisq=[4, ], c=None, ls='-'):
-        """alpha-Mstar likelihood contours.
+    def fn_fit_ap(self, fn, M0=-21, Mmin=None, Mmax=None, verbose=0):
+        """Fit function fn to LF data.
+        M0 is guess at characteristic magnitude (if negaitive) or
+        log stellar mass (if positive)."""
+
+        self.M0 = M0
+#        self.fn = fn
+        if (Mmin and Mmax):
+            self.Mmin_fit = Mmin
+            self.Mmax_fit = Mmax
+        else:
+            self.Mmin_fit = self.comp_min
+            self.Mmax_fit = self.comp_max
+        idx = (self.comp * (self.phi_err > 0) *
+               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
+
+        if M0 < 0:
+            xfac = 2.5  # luminosity
+        else:
+            xfac = 1.0  # stellar mass
+        x = 10**((M0-self.Mbin)/xfac)
+        npar = 3
+        if fn.alpha.fixed:
+            npar = 2
+        self.ndof = len(self.Mbin[idx]) - npar
+        fit = fitting.LevMarLSQFitter()
+#        fit = fitting.SLSQPLSQFitter()
+
+        fit_fn = fit(fn, x[idx], self.phi[idx], weights=1.0/self.phi_err[idx])
+#        pdb.set_trace()
+        self.fit_fn = fit_fn
+        self.fit_par = (-fit_fn.alpha.value,
+                        M0 - xfac**math.log10(fit_fn.x_0.value),
+                        fit_fn.amplitude.value)
+        if verbose:
+#            print(self.fit_par)
+            print(fit_fn)
+        self.chi2 = np.sum((self.phi[idx] - fit_fn(x[idx])/self.phi_err[idx])**2)
+
+        fit_jack = []
+        for jack in range(self.njack):
+            fit_j = fit(fit_fn, x[idx], self.phi_jack[jack, idx],
+                          weights=1.0/self.phi_err[idx])
+            fit_jack.append((-fit_j.alpha.value,
+                             M0 - xfac*math.log10(fit_j.x_0.value),
+                             fit_j.amplitude.value))
+        self.fit_err = np.std(fit_jack, axis=0)
+        if self.error == 'jackknife':
+            self.fit_err *= np.sqrt(self.njack-1)
+
+        return fit_fn
+
+    def fn_fit_sherpa(self, fn, M0=-21, Mmin=None, Mmax=None, verbose=0):
+        """Fit function fn to LF data using Sherpa.
+        M0 is guess at characteristic magnitude (if negative) or
+        log stellar mass (if positive)."""
+
+        self.M0 = M0
+#        self.fn = fn
+        if (Mmin and Mmax):
+            self.Mmin_fit = Mmin
+            self.Mmax_fit = Mmax
+        else:
+            self.Mmin_fit = max(self.bins[0], self.comp_min)
+            self.Mmax_fit = min(self.bins[-1], self.comp_max)
+        idx = (self.comp * (self.phi_err > 0) *
+               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
+
+        if M0 < 0:  # luminosity with 1 mag bins
+            x = 10**(0.4*(M0-self.Mbin))
+            xu = 10**(0.4*(1+M0-self.Mbin))
+#            dx = np.fabs(np.diff(10**(0.4*(M0-self.bins))))
+        else:  # stellar mass with 1 dex bins
+            x = 10**(self.Mbin - M0)
+            xu = 10**(self.Mbin - M0 + 1)
+#            dx = np.fabs(np.diff(10**(self.bins - M0)))
+        from sherpa.data import Data1DInt
+        from sherpa.astro.models import Schechter
+        from sherpa.fit import Fit
+        from sherpa.optmethods import LevMar, NelderMead
+        from sherpa.stats import Chi2
+        from sherpa.estmethods import Confidence
+
+        d = Data1DInt('All', x[idx], xu[idx], self.phi[idx],
+                      self.phi_err[idx])
+        sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
+        res = sfit.fit()
+#        pdb.set_trace()
+        self.fit_fn = fn
+        sfit.estmethod = Confidence()
+        self.fit_errors = sfit.est_errors()
+#        self.fit_par = (res.alpha.val,
+#                        M0 - xfac**math.log10(res.ref.value),
+#                        res.norm.value)
+        self.fit_par = res.parvals
+        if verbose:
+            print(res)
+        self.chi2 = res.statval
+        self.ndof = res.dof
+
+        fit_jack = []
+        for jack in range(self.njack):
+            d = Data1DInt('All', x[idx], xu[idx],
+                          self.phi_jack[jack, idx], self.phi_err[idx])
+            sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
+            resj = sfit.fit()
+            fit_jack.append(resj.parvals)
+        self.fit_err = np.std(fit_jack, axis=0)
+        if self.error == 'jackknife':
+            self.fit_err *= np.sqrt(self.njack-1)
+
+        return self.fit_fn
+
+    def fn_fit(self, fn, Mmin=None, Mmax=None, verbose=0):
+        """Fit function fn to LF data using Sherpa."""
+
+        self.Mmin_fit = max(self.bins[0], self.comp_min)
+        self.Mmax_fit = min(self.bins[-1], self.comp_max)
+        if Mmin:
+            self.Mmin_fit = max(Mmin, self.Mmin_fit)
+        if Mmax:
+            self.Mmax_fit = min(Mmax, self.Mmax_fit)
+        idx = (self.comp * (self.phi_err > 0) *
+               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
+
+        d = Data1D('All', self.Mbin[idx], self.phi[idx],
+                   staterror=self.phi_err[idx])
+        sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
+        self.res = sfit.fit()
+        sfit.estmethod = Confidence()
+        sfit.estmethod.max_rstat = 100
+        try:
+            self.errors = sfit.est_errors()
+        except EstErr:
+            print('Warning: reduced chi2 exceeds ', sfit.estmethod.max_rstat)
+#            pdb.set_trace()
+
+        self.fit = sfit
+        self.fn = fn
+#        self.fit_par = (res.alpha.val,
+#                        M0 - xfac**math.log10(res.ref.value),
+#                        res.norm.value)
+#        self.fit_par = res.parvals
+        if verbose:
+            print(self.res)
+
+#        rproj = RegionProjection()
+#        rproj.prepare(nloop=(11, 11))
+#        rproj.calc(self.fit, self.fn.Mstar, self.fn.lgps)
+##                rproj.contour(overplot=1, clearwindow=0)
+#        plt.clf()
+#        rproj.contour()
+#        plt.show()
+
+#        self.chi2 = res.statval
+#        self.ndof = res.dof
+
+#        fit_jack = []
+#        for jack in range(self.njack):
+#            d = Data1DInt('All', x[idx], xu[idx],
+#                          self.phi_jack[jack, idx], self.phi_err[idx])
+#            sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
+#            resj = sfit.fit()
+#            fit_jack.append(resj.parvals)
+#        self.fit_err = np.std(fit_jack, axis=0)
+#        if self.error == 'jackknife':
+#            self.fit_err *= np.sqrt(self.njack-1)
+
+        return self.fn
+
+    def like_cont_old(self, pp=(0, 1), mp=2, ax=None, label=None,
+                  lc_step=32, lc_limits=4,
+                  dchisq=[4, ], c=None, ls='-', verbose=0):
+        """Plot likelihood contours for given parameter pair pp
+        (default alpha-Mstar), marginalising over mp (default log phi*).
         lc_limits may be specified as four lower and upper limits,
         two ranges, or a single sigma multiplier."""
 
@@ -622,46 +794,186 @@ class LF():
                 xmin, xmax, ymin, ymax = lc_limits
             if len(lc_limits) == 2:
                 xrange, yrange = lc_limits
-                xmin = self.fit_par[0] - xrange
-                xmax = self.fit_par[0] + xrange
-                ymin = self.fit_par[1] - yrange
-                ymax = self.fit_par[1] + yrange
+                xmin = self.fit_par[pp[0]] - xrange
+                xmax = self.fit_par[pp[0]] + xrange
+                ymin = self.fit_par[pp[1]] - yrange
+                ymax = self.fit_par[pp[1]] + yrange
         except TypeError:
-            xmin = self.fit_par[0] - lc_limits*self.fit_err[0]
-            xmax = self.fit_par[0] + lc_limits*self.fit_err[0]
-            ymin = self.fit_par[1] - lc_limits*self.fit_err[1]
-            ymax = self.fit_par[1] + lc_limits*self.fit_err[1]
+            xmin = self.fit_par[pp[0]] - lc_limits*self.fit_err[pp[0]]
+            xmax = self.fit_par[pp[0]] + lc_limits*self.fit_err[pp[0]]
+            ymin = self.fit_par[pp[1]] - lc_limits*self.fit_err[pp[1]]
+            ymax = self.fit_par[pp[1]] + lc_limits*self.fit_err[pp[1]]
         dx = (xmax - xmin)/lc_step
         dy = (ymax - ymin)/lc_step
         self.lc_limits = [xmin, xmax, ymin, ymax]
+        if verbose:
+            print(self.lc_limits)
+#        pdb.set_trace()
 
         # chi2 minimum
-        chi2min = lf_resid(self.fit_par,
-                           self.fn, self.Mbin, self.phi, self.phi_err)
+        chi2min = self.lf_resid(self.fit_par)
         self.v = chi2min + dchisq
         for ix in range(lc_step):
-            al = xmin + (ix+0.5)*dx
+            x = xmin + (ix+0.5)*dx
             for iy in range(lc_step):
-                ms = ymin + (iy+0.5)*dy
-                res = scipy.optimize.fmin(
-                        lambda lpstar: lf_resid(
-                                (al, ms, lpstar),
-                                self.fn, self.Mbin, self.phi, self.phi_err),
-                         -2, xtol=0.001, ftol=0.001, full_output=1, disp=0)
-                self.chi2map[iy, ix] = res[1]
-                if res[4] != 0:
-                    pdb.set_trace()
+                y = ymin + (iy+0.5)*dy
+                if mp == 0:
+                    # Marginalise over alpha
+                    res = scipy.optimize.fmin(
+                            lambda alpha: self.lf_resid((alpha, x, y)),
+                            1, xtol=0.001, ftol=0.001, full_output=1, disp=0)
+                    self.chi2map[iy, ix] = res[1]
+                    if res[4] != 0:
+                        pdb.set_trace()
+                if mp == 2:
+                    # Marginalise over log phi*
+                    res = scipy.optimize.fmin(
+                            lambda lpstar: self.lf_resid((x, y, lpstar)),
+                            1, xtol=0.001, ftol=0.001, full_output=1, disp=0)
+                    self.chi2map[iy, ix] = res[1]
+                    if res[4] != 0:
+                        pdb.set_trace()
+                if mp is None:
+                    # Assume fixed alpha
+                    self.chi2map[iy, ix] = self.lf_resid((x, y))
 
         if ax:
             if not c:
                 c = next(ax._get_lines.prop_cycler)['color']
-            return ax.contour(self.chi2map, self.v, aspect='auto', origin='lower',
-                       extent=self.lc_limits, linestyles=ls, colors=c,
-                       label=label)
+            return ax.contour(self.chi2map, self.v, aspect='auto',
+                              origin='lower', extent=self.lc_limits,
+                              linestyles=ls, colors=c, label=label)
 #            pdb.set_trace()
 
+    def like_cont(self, px, py, ax=None, label=None,
+                  lc_step=32, lc_limits=4,
+                  dchisq=[4, ], c=None, ls='-', verbose=0):
+        """Plot likelihood contours for given parameter pair,
+        marginalising over any unfrozen parameters in the model.
+        lc_limits may be specified as four lower and upper limits,
+        two ranges, or a single sigma multiplier."""
+
+#        pdb.set_trace()
+        chi2min = self.res.statval
+        v = chi2min + np.array(dchisq)
+        try:
+            if len(lc_limits) == 4:
+                xmin, xmax, ymin, ymax = lc_limits
+            if len(lc_limits) == 2:
+                xrange, yrange = lc_limits
+                xmin = self.fit_par[px] - xrange
+                xmax = self.fit_par[px] + xrange
+                ymin = self.fit_par[py] - yrange
+                ymax = self.fit_par[py] + yrange
+        except TypeError:
+            dvals = zip(self.errors.parnames, self.errors.parvals,
+                        self.errors.parmins, self.errors.parmaxes)
+            pvals = {d[0]: {'val': d[1], 'loerr': d[2], 'hierr': d[3]}
+                     for d in dvals}
+            xmin = pvals[px]['val'] + lc_limits*pvals[px]['loerr']
+            xmax = pvals[px]['val'] + lc_limits*pvals[px]['hierr']
+            ymin = pvals[py]['val'] + lc_limits*pvals[py]['loerr']
+            ymax = pvals[py]['val'] + lc_limits*pvals[py]['hierr']
+#        dx = (xmax - xmin)/lc_step
+#        dy = (ymax - ymin)/lc_step
+        self.lc_limits = [xmin, xmax, ymin, ymax]
+        if verbose:
+            print(self.lc_limits)
+
+        from sherpa.plot import RegionProjection
+        rproj = RegionProjection()
+        rproj.prepare(min=[xmin, ymin], max=[xmax, ymax],
+                      nloop=[lc_step, lc_step])
+        rproj.calc(self.fit, self.fn.Mstar, self.fn.lgps)
+        rproj.contour()
+        x0, x1, chi2 = rproj.x0, rproj.x1, rproj.y
+        chi2.resize(rproj.nloop)
+
+        # chi2 minimum
+#        chi2min = self.lf_resid(self.fit_par)
+#        self.v = chi2min + dchisq
+#        for ix in range(lc_step):
+#            x = xmin + (ix+0.5)*dx
+#            for iy in range(lc_step):
+#                y = ymin + (iy+0.5)*dy
+#                if mp == 0:
+#                    # Marginalise over alpha
+#                    res = scipy.optimize.fmin(
+#                            lambda alpha: self.lf_resid((alpha, x, y)),
+#                            1, xtol=0.001, ftol=0.001, full_output=1, disp=0)
+#                    self.chi2map[iy, ix] = res[1]
+#                    if res[4] != 0:
+#                        pdb.set_trace()
+#                if mp == 2:
+#                    # Marginalise over log phi*
+#                    res = scipy.optimize.fmin(
+#                            lambda lpstar: self.lf_resid((x, y, lpstar)),
+#                            1, xtol=0.001, ftol=0.001, full_output=1, disp=0)
+#                    self.chi2map[iy, ix] = res[1]
+#                    if res[4] != 0:
+#                        pdb.set_trace()
+#                if mp is None:
+#                    # Assume fixed alpha
+#                    self.chi2map[iy, ix] = self.lf_resid((x, y))
+
+        if ax:
+            if not c:
+                c = next(ax._get_lines.prop_cycler)['color']
+#            pdb.set_trace()
+#            ax.imshow(y, origin='lower', cmap='viridis_r', aspect='auto',
+#                      extent=(x0.min(), x0.max(), x1.min(), x1.max()))
+            pdb.set_trace()
+            return ax.contour(chi2, v, aspect='auto',
+                              origin='lower', extent=self.lc_limits,
+                              linestyles=ls, colors=c, label=label)
+
+    def lf_resid(self, x, jack=-1):
+        """Return chi^2 residual for functional fit to binned phi estimate."""
+
+        M = self.Mbin
+        fit = self.fn(M, x)
+#        if sigma > 0:
+#            scale = sigma/np.mean(np.diff(M))
+#            ng = int(math.ceil(3*scale))
+#            gauss = scipy.stats.norm.pdf(np.arange(-ng, ng+1), scale=scale)
+#            fit = np.convolve(fit, gauss, 'same')
+
+        idx = (self.phi_err > 0) * (self.Mmin_fit <= M) * (M < self.Mmax_fit)
+        if jack >= 0:
+            fc = np.sum(((self.phi_jack[jack, idx]-fit[idx]) /
+                         self.phi_err[idx])**2)
+        else:
+            fc = np.sum(((self.phi[idx]-fit[idx]) / self.phi_err[idx])**2)
+        return fc
+
+    def gaussian(self, M, pars):
+        mu, sigma, norm = pars[0], pars[1], 10**pars[2]
+        return norm * np.exp(-(M - mu)**2) / (2 * sigma**2)
+
+    def Schechter_mag(self, M, pars):
+        alpha, Mstar, phistar = pars[0], pars[1], 10**pars[2]
+        L = 10**(0.4*(Mstar-M))
+        schec = 0.4*ln10*phistar*L**(alpha+1)*np.exp(-L)
+        return schec
+
+    def Schechter_mag_fixed_alpha(self, M, pars):
+        Mstar, phistar = pars[0], 10**pars[1]
+        L = 10**(0.4*(Mstar-M))
+        schec = 0.4*ln10*phistar*L**(self.alpha+1)*np.exp(-L)
+        return schec
+
+    def Schechter_mass(self, logM, pars):
+        alpha, logMstar, phistar = pars[0], pars[1], 10**pars[2]
+        M = 10**(logM-logMstar)
+        return ln10 * np.exp(-M) * phistar*M**(alpha+1)
+
+    def Schechter_dbl_mass(self, logM, pars):
+        logMstar, alpha1, alpha2, ps1, ps2 = pars
+        M = 10**(logM-logMstar)
+        return ln10 * np.exp(-M) * (ps1*M**(alpha1+1) + ps2*M**(alpha2+1))
+
     def plot(self, ax=None, nmin=1, label=None, xlim=None, ylim=None,
-             fmt='o', ls='-', clr='k', mfc=None, show_fit=True,
+             fmt='o', ls='-', clr=None, mfc=None, show_fit=True,
              schecp=None, finish=False):
         """Plot LF and optionally the Schechter fn fit."""
 
@@ -672,14 +984,25 @@ class LF():
 #        c = 'k'
         comp = self.comp
         comp *= (self.ngal >= nmin)
-        ax.errorbar(self.Mbin[comp], self.phi[comp], self.phi_err[comp],
-                    fmt=fmt, color=clr, mfc=mfc, label=label)
+        h = ax.errorbar(self.Mbin[comp], self.phi[comp], self.phi_err[comp],
+                        fmt=fmt, color=clr, mfc=mfc, label=label)
 #        print(self.Mbin[comp], self.phi[comp])
-        if show_fit and hasattr(self, 'fit_par'):
-            x = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
-            y = self.fn(x, self.fit_par)
+#        if show_fit and hasattr(self, 'fit_par'):
+#            x = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
+#            y = self.fn(x, self.fit_par)
+#            show = y > 1e-10
+#            ax.plot(x[show], y[show], ls=ls, color=clr)
+        if show_fit and hasattr(self, 'fn'):
+            Mbin = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
+#            Mbin = bins[:-1] + 0.5*np.diff(bins)
+#            x = 10**(0.4*(self.M0-Mbin))
+#            xu = 10**(0.4*(1+self.M0-Mbin))
+#            dx = np.fabs(np.diff(10**(0.4*(self.M0-bins))))
+            y = self.fn(Mbin)
             show = y > 1e-10
-            ax.plot(x[show], y[show], ls=ls, color=clr)
+            ax.plot(Mbin[show], y[show], ls=ls, color=clr)
+#            print(x, y)
+#            pdb.set_trace()
         if xlim:
             ax.set_xlim(xlim)
         if ylim:
@@ -692,12 +1015,13 @@ class LF():
             ax.set_xlabel(r'$M_r$')
             ax.set_ylabel(r'$\phi$')
             plt.show()
+        return h
 
-    def fn_plot(self, ax, par, ls='-'):
+    def fn_plot(self, ax, par, ls='-', c=None):
         """Plot functional fit."""
 
-        c = next(ax._get_lines.prop_cycler)['color']
-#        c = 'k'
+        if c is None:
+            c = next(ax._get_lines.prop_cycler)['color']
         x = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
         y = self.fn(x, par)
         show = y > 1e-10
@@ -839,19 +1163,19 @@ class LF2():
             plt.show()
 
 
-def lf_resid(x, fn, M, phi, phi_err, Mmin=-99, Mmax=99, sigma=0):
-    """Return chi^2 residual for functional fit to binned phi estimate."""
-
-    fit = fn(M, x)
-    if sigma > 0:
-        scale = sigma/np.mean(np.diff(M))
-        ng = int(math.ceil(3*scale))
-        gauss = scipy.stats.norm.pdf(np.arange(-ng, ng+1), scale=scale)
-        fit = np.convolve(fit, gauss, 'same')
-
-    idx = (phi_err > 0) * (Mmin <= M) * (M < Mmax)
-    fc = np.sum(((phi[idx]-fit[idx]) / phi_err[idx])**2)
-    return fc
+#def lf_resid(x, fn, M, phi, phi_err, Mmin=-99, Mmax=99, sigma=0):
+#    """Return chi^2 residual for functional fit to binned phi estimate."""
+#
+#    fit = fn(M, x)
+#    if sigma > 0:
+#        scale = sigma/np.mean(np.diff(M))
+#        ng = int(math.ceil(3*scale))
+#        gauss = scipy.stats.norm.pdf(np.arange(-ng, ng+1), scale=scale)
+#        fit = np.convolve(fit, gauss, 'same')
+#
+#    idx = (phi_err > 0) * (Mmin <= M) * (M < Mmax)
+#    fc = np.sum(((phi[idx]-fit[idx]) / phi_err[idx])**2)
+#    return fc
 
 
 def wake_kcorr_test(zrange=(0.15, 0.35, 20), girange=(1.5, 2.5, 20),

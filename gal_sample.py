@@ -295,39 +295,6 @@ class GalSample():
         self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
         self.t['use'] = np.ones(len(self.t), dtype=np.bool)
 
-    def read_gama_group_mocks(self):
-        """Read gama group mocks."""
-
-#       See Robotham+2011 Sec 2.2 fopr k- and e- corrections
-        global cosmo, kz0, ez0
-        kz0 = 0.2
-        ez0 = 0
-        pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
-        self.kmean = pcoeff
-
-        gal = Table.read(g3cmockgal)
-        grp = Table.read(g3cmockfof)
-        omega_l = 0.75
-        self.area = 144 * (math.pi/180.0)**2
-        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
-        grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumBfunc']) - 11.5)
-        t = join(gal, grp, join_type='left', 
-                 metadata_conflicts=metadata_conflicts)
-#        pdb.set_trace()
-        # Select mock galaxies in given redshift range
-        sel = (t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1])
-        t = t[sel]
-        t.rename_column('Z', 'z')
-        r_petro = [Magnitude(t['Rpetro'][i], t['z'][i], pcoeff,
-                             Q=self.Q, band='r') for i in range(len(t))]
-
-        # Copy required columns to new table
-        self.t = t
-        self.t['r_petro'] = r_petro
-        self.t['PCOEFF_R'] = np.tile(pcoeff, (len(t), 1))
-        self.t['cweight'] = np.ones(len(self.t))
-        self.t['use'] = np.ones(len(self.t), dtype=np.bool)
-
     def read_lowz(self, infile, chi2max=10, nq_min=3):
         """Read LOWZ data."""
 
@@ -567,6 +534,50 @@ class GalSample():
         self.vmax_calc()
         self.assign_jackknife()
 
+    def read_gama_group_mocks(self, mass_est='lum', nmin=5, edge_min=0.9):
+        """Read gama group mocks."""
+
+#       See Robotham+2011 Sec 2.2 fopr k- and e- corrections
+        global cosmo, kz0, ez0
+        kz0 = 0.2
+        ez0 = 0
+        pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
+        self.kmean = pcoeff
+
+        t = Table.read(g3cmockfof)
+        if mass_est == 'lum':
+            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+        if mass_est == 'dyn':
+            t['log_mass'] = np.log10(t['MassAfunc'])
+        sel = (np.array(t['GroupEdge'] > edge_min) *
+               np.logical_not(t['log_mass'].mask) *
+               np.array(t['Nfof'] >= nmin))
+        grp = t[sel]
+        print(len(grp), 'out of ', len(t), ' selected')
+
+        gal = Table.read(g3cmockgal)
+        omega_l = 0.75
+        self.area = 144 * (math.pi/180.0)**2
+        cosmo = CosmoLookup(H0, omega_l, self.zlimits, P=self.P)
+        t = join(gal, grp,  # join_type='left',
+                 metadata_conflicts=metadata_conflicts)
+#        pdb.set_trace()
+        # Select mock galaxies in given redshift range
+        sel = (t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1])
+        t = t[sel]
+        t.rename_column('Z', 'z')
+        r_petro = [Magnitude(t['Rpetro'][i], t['z'][i], pcoeff,
+                             Q=self.Q, band='r') for i in range(len(t))]
+
+        # Copy required columns to new table
+        self.t = t
+        self.t['r_petro'] = r_petro
+        self.t['PCOEFF_R'] = np.tile(pcoeff, (len(t), 1))
+        self.t['cweight'] = np.ones(len(self.t))
+        self.t['use'] = np.ones(len(self.t), dtype=np.bool)
+        self.grps = grp
+        self.t['Vmax_grp'] = np.zeros(len(self.t))
+
     def select(self, sel_dict=None):
         """Select galaxies that satisfy criteria in sel_dict."""
 
@@ -637,17 +648,93 @@ class GalSample():
             self.t['zlo'][i] = max(zlo)
             self.t['zhi'][i] = min(zhi)
 
-    def group_props(self):
-        """Add group properties.
+    def vmax_calc(self, denfile=gama_data+'radial_density.fits'):
+        """Calculate standard and density-corrected Vmax values."""
+
+        zmin, zmax = self.zlimits
+        nz = 100
+        zbins = np.linspace(zmin, zmax, nz)
+        Vmax_raw = np.zeros(nz)
+        Vmax_ec = np.zeros(nz)
+        Vmax_dc = np.zeros(nz)
+        Vmax_dec = np.zeros(nz)
+        if denfile:
+            den = Table.read(denfile)
+
+        afac = self.area
+        for iz in range(1, nz):
+            zlo, zhi = zbins[iz-1], zbins[iz]
+            V, err = scipy.integrate.quad(
+                    cosmo.dV, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+            Vmax_raw[iz] = Vmax_raw[iz-1] + V
+            V, err = scipy.integrate.quad(
+                    cosmo.vol_ev, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+            Vmax_ec[iz] = Vmax_ec[iz-1] + V
+            if denfile:
+                V, err = scipy.integrate.quad(
+                        lambda z: cosmo.dV(z) *
+                        np.interp(z, den['zbin'], den['delta_av']),
+                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+                Vmax_dc[iz] = Vmax_dc[iz-1] + V
+                V, err = scipy.integrate.quad(
+                        lambda z: cosmo.vol_ev(z) *
+                        np.interp(z, den['zbin'], den['delta_av']),
+                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
+                Vmax_dec[iz] = Vmax_dec[iz-1] + V
+
+        zlo = np.clip(self.t['zlo'], *self.zlimits)
+        zhi = np.clip(self.t['zhi'], *self.zlimits)
+        self.t['Vmax_raw'] = np.interp(zhi, zbins, afac*Vmax_raw)
+        self.t['Vmax_ec'] = np.interp(zhi, zbins, afac*Vmax_ec)
+        if denfile:
+            self.t['Vmax_dc'] = np.interp(zhi, zbins, afac*Vmax_dc)
+            self.t['Vmax_dec'] = np.interp(zhi, zbins, afac*Vmax_dec)
+        else:
+            self.t['Vmax_dc'] = self.t['Vmax_raw']
+            self.t['Vmax_dec'] = self.t['Vmax_ec']
+
+    def group_props(self, mass_est='lum', nmin=5, edge_min=0.9,
+                    grpfile=g3cfof, galfile=g3cgal):
+        """Add group properties, selecting only galaxies in reliable groups
+        as specified by nmin and edge_min.
         Luminosity-based mass estimate is from Viola+2015, eqn (37)."""
 
-        g = Table.read(os.environ['GAMA_DATA'] + '/g3cv9/G3CFoFGroupv09.fits')
-        g['log_mass'] = 13.98 + 1.16*(np.log10(g['LumBfunc']) - 11.5)
-        gals = Table.read(os.environ['GAMA_DATA'] + '/g3cv9/G3CGalv08.fits')
-        joined = join(gals, g, keys='GroupID', join_type='left',
+        t = Table.read(grpfile)
+        if mass_est == 'lum':
+            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+        if mass_est == 'dyn':
+            t['log_mass'] = np.log10(t['MassAfunc'])
+        sel = (np.array(t['GroupEdge'] > edge_min) *
+               np.logical_not(t['log_mass'].mask) *
+               np.array(t['Nfof'] >= nmin))
+        grps = t[sel]
+        print(len(grps), 'out of ', len(t), ' groups selected')
+        gals = Table.read(galfile)
+        joined = join(gals, grps, keys='GroupID',  # join_type='left',
                       metadata_conflicts=metadata_conflicts)
-        self.t = join(self.t, joined, keys='CATAID', join_type='left',
+#        pdb.set_trace()
+        self.t = join(self.t, joined, keys='CATAID',  # join_type='left',
                       metadata_conflicts=metadata_conflicts)
+        self.grps = grps
+        self.t['Vmax_grp'] = np.zeros(len(self.t))
+
+    def vmax_group(self, mlo, mhi):
+        """Sets self.t['Vmax_grp'] to number of groups in log mass range
+        [mlo, mhi] that are within visibility limits of each galaxy."""
+        lgm = self.grps['log_mass']
+        grp_sel = self.grps[(mlo <= lgm) * (lgm < mhi)]
+        grp_z = grp_sel['IterCenZ']
+        zlo = np.clip(self.t['zlo'][self.use], *self.zlimits)
+        zhi = np.clip(self.t['zhi'][self.use], *self.zlimits)
+        try:
+            self.t['Vmax_grp'][self.use] = [
+                    len(grp_sel[(zlo[j] <= grp_z) * (grp_z < zhi[j]) *
+                                (self.t['Volume'][j] == grp_sel['Volume'])])
+                    for j in range(len(zlo))]
+        except KeyError:
+            self.t['Vmax_grp'][self.use] = [
+                    len(grp_sel[(zlo[j] <= grp_z) * (grp_z < zhi[j])])
+                    for j in range(len(zlo))]
 
     def group_limit(self, nmin):
         """Limit grouped galaxies to those with a minimum membership of nmin.
@@ -670,10 +757,10 @@ class GalSample():
         sel = t_by_group['Nmem'] >= nmin
         self.t = t_by_group[sel]
 
-    def stellar_mass(self, fslim=(0.8, 10)):
+    def stellar_mass(self, smf=smfile, fslim=(0.8, 10)):
         """Read stellar masses for GAMA."""
 
-        m = Table.read(smfile)
+        m = Table.read(smf)
         m['logmstar'] -= 2*math.log10(cosmo._H0/70.0)
         if fslim:
             sel = (m['fluxscale'] >= fslim[0]) * (m['fluxscale'] < fslim[1])
@@ -893,49 +980,6 @@ class GalSample():
         self.t['Vmax_dc'] = np.dot(den['delta_av'] * V, S_vis)
         self.t['Vmax_ec'] = np.dot(Pz * V, S_vis)
         self.t['Vmax_dec'] = np.dot(den['delta_av'] * Pz * V, S_vis)
-
-    def vmax_calc(self, denfile=gama_data+'radial_density.fits'):
-        """Calculate standard and density-corrected Vmax values."""
-
-        zmin, zmax = self.zlimits
-        nz = 100
-        zbins = np.linspace(zmin, zmax, nz)
-        Vmax_raw = np.zeros(nz)
-        Vmax_ec = np.zeros(nz)
-        Vmax_dc = np.zeros(nz)
-        Vmax_dec = np.zeros(nz)
-        if denfile:
-            den = Table.read(denfile)
-
-        afac = self.area
-        for iz in range(1, nz):
-            zlo, zhi = zbins[iz-1], zbins[iz]
-            V, err = scipy.integrate.quad(
-                    cosmo.dV, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
-            Vmax_raw[iz] = Vmax_raw[iz-1] + V
-            V, err = scipy.integrate.quad(
-                    cosmo.vol_ev, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
-            Vmax_ec[iz] = Vmax_ec[iz-1] + V
-            if denfile:
-                V, err = scipy.integrate.quad(
-                        lambda z: cosmo.dV(z) *
-                        np.interp(z, den['zbin'], den['delta_av']),
-                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
-                Vmax_dc[iz] = Vmax_dc[iz-1] + V
-                V, err = scipy.integrate.quad(
-                        lambda z: cosmo.vol_ev(z) *
-                        np.interp(z, den['zbin'], den['delta_av']),
-                        zlo, zhi, epsabs=1e-3, epsrel=1e-3)
-                Vmax_dec[iz] = Vmax_dec[iz-1] + V
-
-        self.t['Vmax_raw'] = np.interp(self.t['zhi'], zbins, afac*Vmax_raw)
-        self.t['Vmax_ec'] = np.interp(self.t['zhi'], zbins, afac*Vmax_ec)
-        if denfile:
-            self.t['Vmax_dc'] = np.interp(self.t['zhi'], zbins, afac*Vmax_dc)
-            self.t['Vmax_dec'] = np.interp(self.t['zhi'], zbins, afac*Vmax_dec)
-        else:
-            self.t['Vmax_dc'] = self.t['Vmax_raw']
-            self.t['Vmax_dec'] = self.t['Vmax_ec']
 
     def ran_z_gen(self, nfac):
         """Generate random redshifts nfac times larger than gal catalogue."""

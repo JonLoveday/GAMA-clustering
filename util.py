@@ -382,7 +382,7 @@ def mock_ke_corr(z):
 
 def vol_limits(infile=gama_data+'kcorr_auto_z01.fits',  mlim=19.8, Q=0.81,
                Mlims=(-23, -22, -21, -20, -19, -18, -17, -16, -15),
-               plot_fac=0.1, kplot=0):
+               zrange=(0.002, 0.65), plot_fac=0.1, kplot=0):
     """Determine redshift limits corresponding to given absolute magnitude
     limits to yield volume-limited samples"""
 
@@ -400,7 +400,6 @@ def vol_limits(infile=gama_data+'kcorr_auto_z01.fits',  mlim=19.8, Q=0.81,
     header = hdulist[1].header
     H0 = 100.0
     z0 = header['z0']
-    zrange = (0.002, 0.65)
     Mrange = (-15, -23)
     cosmo = CosmoLookup(H0, header['omega_l'], zrange)
 

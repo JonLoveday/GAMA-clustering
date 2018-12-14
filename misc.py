@@ -11,11 +11,12 @@ import os
 import pickle
 from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
+from astropy.modeling import models, fitting
 from astropy.table import Table, join
 from astLib import astCalc
 #import KCorrect as KC
 import pdb
-import matplotlib
+import matplotlib as mpl
 import pylab as plt
 from mpl_toolkits.axes_grid import AxesGrid
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
@@ -37,6 +38,13 @@ import scipy.stats
 # import jswml
 import time
 import util
+
+# Ticks point inwards on all axes
+mpl.rcParams['xtick.direction'] = 'in'
+mpl.rcParams['ytick.direction'] = 'in'
+mpl.rcParams['xtick.top'] = True
+mpl.rcParams['ytick.right'] = True
+mpl.rcParams['mathtext.fontset'] = 'dejavusans'
 
 # Directoty to save plots
 gama_data = os.environ['GAMA_DATA']
@@ -2223,3 +2231,252 @@ def subplot_test():
     plt.xlabel('RA')
     ax3.set_ylabel('Dec')
     plt.draw()
+
+
+def ddf_plots(tilex=1.475, tiley=1.017, plot_size=(12, 12),
+              plot_file='fields.pdf'):
+    """Plot LSST DDFs with VISTA pointings.
+    ELAIS-S1 00 37 48  ( 9.45)  -44 00 00  (-44.0)
+    XMM-LSS  02 22 50  (35.71)  -04 45 00  (-4.75)
+    ECDFSS   03 32 30  (53.125) -28 06 00  (-28.1)
+    COSMOS   10 00 24  (150.1)  +02 10 55  (+2.18)"""
+
+    field_list = [
+            ['ELAIS-S1', 9.45, -44.0, [
+             [9.45, -42.50, 0, 'WAVES-1'],
+             [9.45, -43.50, 0, 'VIDEO-N'],
+             [9.45, -44.50, 0, 'VIDEO-S'],
+             [7.85, -42.58, 0, 'VEILS-1'],
+             [7.85, -43.67, 0, 'VEILS-2'],
+             [7.85, -44.67, 0, 'WAVES-2']
+             ]],
+            ['XMM-LSS', 35.71, -4.75, [
+             [34.425, -4.85, 1, 'VIDEO-1'],
+             [35.50, -4.80, 1, 'VIDEO-2'],
+             [36.575, -4.73, 1, 'VIDEO-3'],
+             [36.00, -6.21, 1, 'VEILS-1'],
+             [35.00, -6.12, 1, 'VEILS-2']
+             ]],
+            ['ECFDS', 53.125, -28.1, [
+             [52.53, -27.57, 0, 'VIDEO-1'],
+             [52.53, -28.64, 0, 'VIDEO-2'],
+             [53.83, -27.98, 1, 'VIDEO-3'],
+             [54.03, -26.75, 0, 'VEILS-1'],
+             [54.03, -29.28, 0, 'VEILS-2']
+             ]],
+            ['COSMOS', 150.1, +2.18, [
+                    [150.02, 2.22, 0, 'ultraVISTA'],
+                    [150.02, 1.22, 0, 'WAVES-1'],
+                    [150.02, 3.22, 0, 'WAVES-2'],
+                    [148.8, 1.52, 1, 'WAVES-3'],
+                    [148.8, 2.92, 1, 'WAVES-4'],
+                    [151.2, 1.52, 1, 'WAVES-5'],
+                    [151.2, 2.92, 1, 'WAVES-6']
+            ]]]
+
+    def plot_field(name, x0, y0, tile_list, rad=1.75, field_size=4.5):
+
+        def plot_circle(x0, y0, rad=1.75, ls='-'):
+            phi = np.linspace(0, 2*math.pi, 100)
+            x = x0 + xfac*rad*np.cos(phi)
+            y = y0 + rad*np.sin(phi)
+            ax.plot(x, y, ls)
+
+        def plot_tile(x, y, rot, label, ls='-'):
+            dx = tilex
+            dy = tiley
+            if rot:
+                dx = tiley
+                dy = tilex
+            xlo = x - 0.5*xfac*dx
+            xhi = x + 0.5*xfac*dx
+            ylo = y - 0.5*dy
+            yhi = y + 0.5*dy
+#            clr = 'k'
+#            if 'WAVES' in label:
+#                clr = 'r'
+            ax.plot((xlo, xhi, xhi, xlo, xlo), (ylo, ylo, yhi, yhi, ylo), ls)
+            ax.text(xhi-0.1*xfac, y, label)
+
+        xfac = 1.0/math.cos(math.radians(y0))
+        xmin = x0 - 0.5*xfac*field_size
+        xmax = x0 + 0.5*xfac*field_size
+        ymin = y0 - 0.5*field_size
+        ymax = y0 + 0.5*field_size
+        ax.axis((xmax, xmin, ymin, ymax), 'square')
+        plot_circle(x0, y0)
+        for tile in tile_list:
+            plot_tile(*tile)
+        ax.set_xlabel('RA [degrees]')
+        ax.set_ylabel('Dec [degrees]')
+        ax.set_title(name)
+
+    plt.clf()
+    ax = plt.subplot(221)
+    plot_field(*field_list[0])
+    ax = plt.subplot(222)
+    plot_field(*field_list[1])
+    ax = plt.subplot(223)
+    plot_field(*field_list[2])
+    ax = plt.subplot(224)
+    plot_field(*field_list[3])
+    fig = plt.gcf()
+    fig.set_size_inches(plot_size)
+    plt.draw()
+    plt.savefig(plot_file, bbox_inches='tight')
+    plt.show()
+
+
+def hms2deg(hh, mm, ss):
+    print(180/12 * (hh + mm/60 + ss/3600))
+
+
+def dms2deg(dd, mm, ss):
+    print(np.sign(dd) * (abs(dd) + mm/60 + ss/3600))
+
+
+def model_test_ap(alpha=1.0, Mstar=-21, phistar=0.01, Mmin=-24, Mmax=-16):
+    """Test astropy.modeling functionality."""
+
+    schec = models.ExponentialCutoffPowerLaw1D(
+            amplitude=phistar, x_0=1.0, alpha=alpha, x_cutoff=1.0,
+            tied={'x_cutoff': lambda s: s.x_0})
+    print(schec)
+    M = np.linspace(Mmin, Mmax, 16)
+    L = 10**(0.4*(Mstar-M))
+    phi = schec(L)
+    phi_err = 0.2*phi*np.random.randn(len(L))
+    phi += phi_err
+    phi_err = np.fabs(phi_err)
+
+    fit = fitting.LevMarLSQFitter()
+    phi_fit = fit(schec, L, phi, weights=1.0/phi_err)
+    print(phi_fit)
+    schec.alpha = 1
+    schec.alpha.fixed = True
+    phi_fit_fixed = fit(schec, L, phi, weights=1.0/phi_err)
+    print(phi_fit_fixed)
+
+    plt.clf()
+    plt.errorbar(M, phi, phi_err, fmt='o')
+    plt.plot(M, phi_fit(L))
+    plt.plot(M, phi_fit_fixed(L))
+    plt.semilogy(basey=10, nonposy='clip')
+    plt.show()
+
+
+def model_test(alpha=-1.0, Mstar=-21, lgps=-2, Mmin=-24, Mmax=-16):
+    """Test sherpa modeling functionality."""
+
+    from sherpa.data import Data1D
+#    from sherpa.astro.models import Schechter
+    from sherpa.estmethods import Confidence
+    from sherpa.fit import Fit
+    from sherpa.optmethods import LevMar, NelderMead
+    from sherpa.plot import IntervalProjection, RegionProjection
+    from sherpa.stats import Chi2
+    from schec import SchecMag
+    schec = SchecMag()
+    schec.alpha = alpha
+    schec.Mstar = Mstar
+    schec.lgps = lgps
+    M = np.linspace(Mmax, Mmin, 16)
+    phi = schec(M)
+#    print(M, phi)
+    phi_err = 0.2*phi*np.random.randn(len(M))
+    phi += phi_err
+    phi_err = np.fabs(phi_err)
+    d = Data1D('example', M, phi, phi_err)
+
+#    phi_fit = fit(schec, L, phi, weights=1.0/phi_err)
+#    print(phi_fit)
+#    schec.alpha = 1
+#    schec.alpha.fixed = True
+#    phi_fit_fixed = fit(schec, L, phi, weights=1.0/phi_err)
+#    print(phi_fit_fixed)
+
+#    sfit = Fit(d, schec, stat=Chi2(), method=LevMar())
+    sfit = Fit(d, schec, stat=Chi2(), method=NelderMead())
+    res = sfit.fit()
+    print(schec)
+    sfit.estmethod = Confidence()
+    sfit.estmethod.max_rstat = 10
+    errors = sfit.est_errors()
+
+    plt.clf()
+    plt.errorbar(M, phi, phi_err, fmt='o')
+    plt.plot(M, schec(M), label='LevMar')
+    plt.semilogy(basey=10, nonposy='clip')
+    plt.show()
+
+#    iproj = IntervalProjection()
+#    iproj.calc(sfit, schec.alpha)
+#    iproj.plot()
+#    plt.show()
+
+    plt.clf()
+    plt.figure(1)
+    rproj = RegionProjection()
+    rproj.prepare(nloop=(41, 41))
+    rproj.calc(sfit, schec.alpha, schec.Mstar)
+    rproj.contour(overplot=1, clearwindow=0)
+#    plt.show()
+
+    plt.figure(2)
+#    plt.subplot(132)
+    rproj = RegionProjection()
+    rproj.prepare(nloop=(41, 41))
+    rproj.calc(sfit, schec.alpha, schec.lgps)
+    rproj.contour(overplot=1, clearwindow=0)
+#    plt.show()
+
+    plt.figure(3)
+    rproj = RegionProjection()
+    rproj.prepare(nloop=(41, 41))
+    rproj.calc(sfit, schec.Mstar, schec.lgps)
+    rproj.contour(overplot=1, clearwindow=0)
+    plt.show()
+
+#    sfit = Fit(d, schec, stat=Chi2(), method=NelderMead())
+#    res = sfit.fit()
+#    print(schec)
+#    sfit.estmethod = Confidence()
+#    sfit.estmethod.max_rstat = 10
+#    errors = sfit.est_errors()
+#
+#    plt.plot(M, schec(M), label='NelderMead')
+##    plt.plot(M, phi_fit(L))
+##    plt.plot(M, phi_fit_fixed(L))
+#    plt.semilogy(basey=10, nonposy='clip')
+#    plt.show()
+
+
+def test_sca():
+    plt.clf()
+    fig, axes = plt.subplots(2, 2, sharex=True, sharey=True, num=1)
+    ax = axes[0, 0]
+    plt.sca(ax)
+    plt.plot((0, 1), (0, 1))
+    plt.show()
+    print(ax)
+
+
+def abs_mag(m, z, H0=100, omega_l=0.7):
+    """K+e-corrected absolute mag for apparent mag m at redshift z.
+    Uses Robotham+2011 generic k+e-corrections."""
+
+    kz0 = 0.2
+    ez0 = 0
+    pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
+    zarr = np.linspace(0, 1, 20)
+    plt.clf()
+    plt.plot(zarr, np.polynomial.polynomial.polyval(zarr - kz0, pcoeff))
+    plt.plot(zarr, np.polynomial.polynomial.polyval(zarr - kz0, pcoeff) - 1.75*zarr)
+    plt.xlabel('z')
+    plt.ylabel('K(z)')
+    plt.show
+    kc = np.polynomial.polynomial.polyval(z - kz0, pcoeff)
+    cosmo = FlatLambdaCDM(H0=H0, Om0=1-omega_l)
+    dm = cosmo.distmod(z)
+#    pdb.set_trace()
+    print(m - dm.value - kc + 1.75*z)
