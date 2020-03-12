@@ -27,45 +27,6 @@ gama_data = os.environ['GAMA_DATA']
 
 class CosmoLookupOld(object):
     """Distance and volume-element lookup tables.
-    NB volume element is per unit solid angle."""
-
-    def __init__(self, H0, omega_l, zRange, nbin=1000):
-        c = 3e5
-        astCalc.H0 = H0
-        astCalc.OMEGA_L = omega_l
-        astCalc.OMEGA_M0 = 1 - omega_l
-        self._zrange = zRange
-        self._z = np.linspace(zRange[0], zRange[1], nbin)
-        nz = self._z.size
-        self._dm = np.zeros(nz)
-        self._dV = np.zeros(nz)
-        for i in xrange(nz):
-            self._dm[i] = astCalc.dm(self._z[i])
-            self._dV[i] = c/H0*self._dm[i]*self._dm[i]/math.sqrt(astCalc.Ez2(self._z[i]))
-        self._dist_mod = 5*np.log10((1+self._z) * self._dm) + 25
-    def dm(self, z):
-        """Transverse comoving distance."""
-        return np.interp(z, self._z, self._dm)
-
-    def dl(self, z):
-        """Luminosity distance."""
-        return (1+z)*np.interp(z, self._z, self._dm)
-
-    def da(self, z):
-        """Angular diameter distance."""
-        return np.interp(z, self._z, self._dm)/(1+z)
-
-    def dV(self, z):
-        """Volume element per unit solid angle."""
-        return np.interp(z, self._z, self._dV)
-
-    def dist_mod(self, z):
-        """Distance modulus."""
-        return np.interp(z, self._z, self._dist_mod)
-
-
-class CosmoLookup(object):
-    """Distance and volume-element lookup tables.
     NB volume element is differential per unit solid angle."""
 
     def __init__(self, H0, omega_l, zRange, nz=1000):
@@ -96,6 +57,70 @@ class CosmoLookup(object):
     def dist_mod(self, z):
         """Distance modulus."""
         return np.interp(z, self._z, self._dist_mod)
+
+
+class CosmoLookup():
+    """Distance and volume-element lookup tables.
+    NB volume element is differential per unit solid angle."""
+
+    def __init__(self, H0, omega_l, zlimits, P=1, nz=1000, ev_model='z'):
+        cosmo = FlatLambdaCDM(H0=H0, Om0=1-omega_l)
+        self._P = P
+        self._ev_model = ev_model
+        self._H0 = H0
+        self._zrange = zlimits
+        self._z = np.linspace(zlimits[0], zlimits[1], nz)
+        self._dm = cosmo.comoving_distance(self._z)
+        self._dV = cosmo.differential_comoving_volume(self._z)
+        self._dist_mod = cosmo.distmod(self._z)
+        print('CosmoLookup: H0={}, Omega_l={}, P={}'.format(H0, omega_l, P))
+
+    def dm(self, z):
+        """Comoving distance."""
+        return np.interp(z, self._z, self._dm)
+
+    def dl(self, z):
+        """Luminosity distance."""
+        return (1+z)*np.interp(z, self._z, self._dm)
+
+    def da(self, z):
+        """Angular diameter distance."""
+        return np.interp(z, self._z, self._dm)/(1+z)
+
+    def dV(self, z):
+        """Volume element per unit solid angle."""
+        return np.interp(z, self._z, self._dV)
+
+    def dist_mod(self, z):
+        """Distance modulus."""
+        return np.interp(z, self._z, self._dist_mod)
+
+    def dist_mod_ke(self, z, kcoeff, kcorr, ecorr):
+        """Returns the K- and e-corrected distance modulus
+        DM(z) + k(z) - e(z)."""
+        dm = self.dist_mod(z) + kcorr(z, kcoeff) - ecorr(z)
+        return dm
+
+    def den_evol(self, z):
+        """Density evolution at redshift z."""
+        if self._ev_model == 'none':
+            try:
+                return np.ones(len(z))
+            except TypeError:
+                return 1.0
+        if self._ev_model == 'z':
+            return 10**(0.4*self._P*z)
+        if self._ev_model == 'z1z':
+            return 10**(0.4*self._P*z/(1+z))
+
+    def vol_ev(self, z):
+        """Volume element multiplied by density evolution."""
+        pz = self.dV(z) * self.den_evol(z)
+        return pz
+
+    def z_at_dm(self, dm):
+        """Redshift at corresponding comoving distance."""
+        return np.interp(dm, self._dm, self._z)
 
 
 def ran_dist(x, p, nran):
@@ -805,8 +830,11 @@ def pdfsave(pdf):
     plt.show()
 
 
-def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
-              reg_range=(0, 3), plot_dir='./', plot_file=None,
+#def cone_plot(ra, dec, z, z_limits=[0, 0.5], size=0.1, clr='k', alpha=0.5,
+#              reg_range=(0, 3), plot_dir='./', clbl=None, plot_file=None,
+#              plot_size=(12, 8), my_dpi=96, ireal=0):
+def cone_plot(data, z_limits=[0, 0.5],
+              reg_range=(0, 3), clbl=None, plot_file=None,
               plot_size=(12, 8), my_dpi=96, ireal=0):
     """GAMA cone plots"""
 
@@ -821,7 +849,7 @@ def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
 
         tr = tr_rotate + tr_scale + PolarAxes.PolarTransform()
 
-        grid_locator1 = MaxNLocator(5)
+        grid_locator1 = MaxNLocator(3)
 
         grid_locator2 = MaxNLocator(5)
 
@@ -844,7 +872,7 @@ def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
         ax1.axis["top"].label.set_axis_direction("top")
 
         ax1.axis["left"].label.set_text(r'z')
-        ax1.axis["top"].label.set_text('RA')
+        ax1.axis["top"].label.set_text('RA [deg]')
 
         # create a parasite axes whose transData in RA, z
         aux_ax = ax1.get_aux_axes(tr)
@@ -857,10 +885,10 @@ def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
 
         return ax1, aux_ax
 
-    ra_limits = ((129, 141), (174, 186), (211.5, 223.5))
-    dec_limits = ((-2, 3), (-3, 2), (-2, 3))
-    rect = (311, 312, 313)
-    label = ('G09', 'G12', 'G15')
+    ra_limits = [[129, 141], [174, 186], [211.5, 223.5]]
+    dec_limits = [[-2, 3], [-3, 2], [-2, 3]]
+    rect = [311, 312, 313]
+    label = ['G09', 'G12', 'G15']
 
     fig = plt.figure(1, figsize=plot_size, dpi=my_dpi)
     fig.clf()
@@ -868,12 +896,25 @@ def cone_plot(ra, dec, z, z_limits=(0, 0.5), size=0.1, clr='k', alpha=0.5,
 
     for ireg in range(*reg_range):
         ax, aux_ax = setup_axes(fig, rect[ireg], ra_limits[ireg] + z_limits)
-        sel = ((ra >= ra_limits[ireg][0]) * (ra <= ra_limits[ireg][1]) *
-               (dec >= dec_limits[ireg][0]) * (dec <= dec_limits[ireg][1]))
-        aux_ax.scatter(ra[sel], z[sel], s=size[sel], c=clr[sel], alpha=alpha)
+#        sel = ((d['ra'] >= ra_limits[ireg][0]) *
+#               (d['ra'] <= ra_limits[ireg][1]))
+#               (dec >= dec_limits[ireg][0]) * (dec <= dec_limits[ireg][1]))
+#        aux_ax.scatter(ra[sel], z[sel], s=size[sel], c=clr[sel], alpha=alpha)
+#        aux_ax.scatter(ra[sel], z[sel], s=size, c=clr, alpha=alpha)
+        for d in data:
+            sc = aux_ax.scatter(d['ra'], d['z'], s=d['s'], c=d['c'],
+                                marker=d['marker'], alpha=d['alpha'],
+                                vmax=d['vmax'])
+#            plt.draw()  # flush output
         ax.text(0.05, 0.7, label[ireg], transform=ax.transAxes)
+
+    if clbl:
+        fig.subplots_adjust(top=0.93)
+        cbar_ax = fig.add_axes([0.13, 0.97, 0.75, 0.02])
+        cb = fig.colorbar(sc, cax=cbar_ax, orientation='horizontal')
+        cbar_ax.set_title(clbl)
 
     plt.draw()
     if plot_file:
-        plt.savefig(plot_dir + plot_file, dpi=my_dpi, bbox_inches='tight')
+        plt.savefig(plot_file, dpi=my_dpi, bbox_inches='tight')
     plt.show()

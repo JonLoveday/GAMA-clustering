@@ -13,6 +13,7 @@ import scipy.special
 
 from astLib import astSED
 from astropy.modeling import models, fitting
+from astropy import table
 from astropy.table import Table, join
 import healpy as hp
 from sherpa.data import Data1D
@@ -42,191 +43,6 @@ mpl.rcParams['xtick.direction'] = 'in'
 mpl.rcParams['ytick.direction'] = 'in'
 mpl.rcParams['xtick.top'] = True
 mpl.rcParams['ytick.right'] = True
-
-
-# GAMA selection limits
-def sel_gama_mag_lo(z, galdat):
-    """r_petro > self.mlimits[0]."""
-    return galdat['r_petro'].app_calc(z)
-
-
-def sel_gama_mag_hi(z, galdat):
-    """r_petro < self.mlimits[1]."""
-    return 19.8 - galdat['r_petro'].app_calc(z)
-
-
-# Selection limits for LOWZ
-def sel_lowz_mag_lo(z, galdat):
-    """r_cmod > 16."""
-    return galdat['r_cmodel'].app_calc(z) - 16
-
-
-def sel_lowz_mag_hi(z, galdat):
-    """r_cmod < 19.6."""
-    return 19.6 - galdat['r_cmodel'].app_calc(z)
-
-
-def sel_lowz_cpar(z, galdat):
-    """r_cmod < 13.5 + c_par/0.3, where
-    c_par = 0.7(g_mod - r_mod) + 1.2(r_mod - i_mod - 0.18)."""
-    r_cmod = galdat['r_cmodel'].app_calc(z)
-    g_mod = galdat['g_model'].app_calc(z)
-    r_mod = galdat['r_model'].app_calc(z)
-    i_mod = galdat['i_model'].app_calc(z)
-    c_par = 0.7*(g_mod - r_mod) + 1.2*(r_mod - i_mod - 0.18)
-    return 13.5 + c_par/0.3 - r_cmod
-
-
-def sel_lowz_cperp_lo(z, galdat):
-    """c_perp > -0.2, where
-    c_perp = (r_mod - i_mod) - (g_mod - r_mod)/4.0 - 0.18."""
-    g_mod = galdat['g_model'].app_calc(z)
-    r_mod = galdat['r_model'].app_calc(z)
-    i_mod = galdat['i_model'].app_calc(z)
-    c_perp = (r_mod - i_mod) - (g_mod - r_mod)/4.0 - 0.18
-    return c_perp + 0.2
-
-
-def sel_lowz_cperp_hi(z, galdat):
-    """c_perp < 0.2, where
-    c_perp = (r_mod - i_mod) - (g_mod - r_mod)/4.0 - 0.18."""
-    g_mod = galdat['g_model'].app_calc(z)
-    r_mod = galdat['r_model'].app_calc(z)
-    i_mod = galdat['i_model'].app_calc(z)
-    c_perp = (r_mod - i_mod) - (g_mod - r_mod)/4.0 - 0.18
-    return 0.2 - c_perp
-
-
-# Selection limits for CMASS
-
-def sel_cmass_mag_lo(z, galdat):
-    """i_cmod > 17.5."""
-    return galdat['i_cmodel'].app_calc(z) - 17.5
-
-
-def sel_cmass_mag_hi(z, galdat):
-    """i_cmod < 19.9."""
-    return 19.9 - galdat['i_cmodel'].app_calc(z)
-
-
-def sel_cmass_fib_mag(z, galdat):
-    """i_fib2 < 21.5."""
-    return 21.5 - galdat['i_fib2'].app_calc(z)
-
-
-def sel_cmass_ri(z, galdat):
-    """r_mod - i_mod < 2."""
-    return 2 - (galdat['r_cmodel'].app_calc(z) -
-                galdat['i_cmodel'].app_calc(z))
-
-
-def sel_cmass_mag_dperp(z, galdat):
-    """i_cmod < 19.86 + 1.6*(d_perp − 0.8), where
-    d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8."""
-    i_cmod = galdat['i_cmodel'].app_calc(z)
-    g_mod = galdat['g_model'].app_calc(z)
-    r_mod = galdat['r_model'].app_calc(z)
-    i_mod = galdat['i_model'].app_calc(z)
-    d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8
-    return 19.86 + 1.6*(d_perp - 0.8) - i_cmod
-
-
-def sel_cmass_dperp(z, galdat):
-    """d_perp > 0.55, where
-    d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8."""
-    g_mod = galdat['g_model'].app_calc(z)
-    r_mod = galdat['r_model'].app_calc(z)
-    i_mod = galdat['i_model'].app_calc(z)
-    d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8
-    return d_perp - 0.55
-
-
-def lfr(outfile='lfr.pkl', colname='r_petro', clrname='gi_colour',
-        bins=np.linspace(-25, -12, 26), Mmin_fit=-24, Mmax_fit=-17,
-        p0=(-1, -21, -2), zlimits=(0.002, 0.65), error='jackknife'):
-    """r-band LF using density-corrected Vmax."""
-
-    samp = gs.GalSample()
-    samp.read_gama()
-    samp.stellar_mass()
-    samp.add_sersic_index()
-    samp.vis_calc((sel_gama_mag_lo, sel_gama_mag_hi))
-    samp.vmax_calc()
-    lf_dict = {}
-    lf = LF(samp, colname, bins, error=error)
-#    lf.fn_fit(fn=lf.Schechter_mag, Mmin=Mmin_fit, Mmax=Mmax_fit, p0=p0)
-    lf_dict['all'] = lf
-#    lf.plot(finish=True)
-
-    for colour in 'br':
-        clr_limits = ('a', 'z')
-        if (colour == 'b'):
-            clr_limits = ('b', 'c')
-        if (colour == 'r'):
-            clr_limits = ('r', 's')
-        sel_dict = {clrname: clr_limits}
-        samp.select(sel_dict)
-        lf = LF(samp, colname, bins, error=error, sel_dict=sel_dict)
-        lf_dict[colour] = lf
-
-    for lbl, sersic_lims in zip(['nlo', 'nhi'], [[0, 1.9], [1.9, 30]]):
-        sel_dict = {'GALINDEX_r': sersic_lims}
-        samp.select(sel_dict)
-        lf = LF(samp, colname, bins, error=error, sel_dict=sel_dict)
-#        lf.fn_fit(fn=lf.Schechter_mag, Mmin=Mmin_fit, Mmax=Mmax_fit, p0=p0)
-        lf_dict[lbl] = lf
-
-    pickle.dump(lf_dict, open(outfile, 'wb'))
-
-
-def plot(infile, lf_lims=(-15, -23.5, 1e-7, 0.1), nmin=5, fn=SchecMag(),
-         p0=(-1, -21, -2), Mmin_fit=-24, Mmax_fit=-17,
-         plot_file='/Users/loveday/Documents/tex/papers/gama/groupLF/lf_field.pdf',
-         plot_size=(6, 3)):
-    """Plot LFs."""
-
-    fn.alpha = p0[0]
-    fn.Mstar = p0[1]
-    fn.lgps = p0[2]
-
-    lf_dict = pickle.load(open(infile, 'rb'))
-    plt.clf()
-    fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, num=1)
-    fig.set_size_inches(plot_size)
-    fig.subplots_adjust(left=0, bottom=0.0, hspace=0.0, wspace=0.0)
-    plt.semilogy(basey=10, nonposy='clip')
-    ax = axes[0]
-    ax.axis(lf_lims)
-    ax.set_xlabel(mag_label)
-    ax.set_ylabel(lf_label)
-    phi = lf_dict['all']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='k', label='All')
-    phi = lf_dict['b']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='b', label='Blue')
-    phi = lf_dict['r']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='r', label='Red')
-    ax.legend()
-
-    ax = axes[1]
-    ax.axis(lf_lims)
-    ax.set_xlabel(mag_label)
-    phi = lf_dict['all']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='k', label='All')
-    phi = lf_dict['nlo']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='b', label='low-n')
-    phi = lf_dict['nhi']
-    phi.fn_fit(fn, Mmin=Mmin_fit, Mmax=Mmax_fit)
-    phi.plot(ax=ax, nmin=nmin, clr='r', label='high-n')
-    ax.legend()
-
-    plt.draw()
-    plt.savefig(plot_file, bbox_inches='tight')
-    plt.show()
 
 
 def fortuna(outfile='lf_fortuna.dat',
@@ -362,17 +178,22 @@ def absmag_lowz(infile='lowz_kcorrz00.fits', outfile='lowz_abs.fits',
     t.write(outfile, format='fits', overwrite=True)
 
 
-def smf(outfile='smf.dat',
-        colname='logmstar', Mmin=6, Mmax=12, nbin=24, zmin=0.002, zmax=0.65,
+def smf(kref=0.0, masscomp=True, outfile='smf_comp.dat',
+        colname='logmstar', bins=np.linspace(6, 12, 24), zmin=0.002, zmax=0.65,
         zlims=(0.002, 0.1, 0.2, 0.3)):
     """Stellar mass function using density-corrected Vmax."""
 
     samp = gs.GalSample(Q=0, P=0)
-    samp.read_gama()
+    samp.read_gama(kref=kref)
     samp.stellar_mass()
-    samp.vis_calc((sel_gama_mag_lo, sel_gama_mag_hi))
+    if masscomp:
+        mass_limit(samp)
+        samp.vis_calc((samp.sel_mass_hi, samp.sel_mass_lo))
+        samp.comp_limit_mass()
+    else:
+        samp.vis_calc((samp.sel_mag_lo, samp.sel_mag_hi))
     samp.vmax_calc()
-    lf = LF(samp, colname, Mmin=Mmin, Mmax=Mmax, nbin=nbin)
+    lf = LF(samp, colname, bins, error='jackknife')
     lf.plot(finish=True)
     lf_dict = {'all': lf}
     for iz in range(3):
@@ -381,12 +202,20 @@ def smf(outfile='smf.dat',
         samp.vmax_calc()
         sel_dict = {'z': (zlo, zhi)}
         samp.select(sel_dict)
-        lf = LF(samp, colname, Mmin=Mmin, Mmax=Mmax, nbin=nbin,
-                error='jackknife', sel_dict=sel_dict)
-        lf.comp_limit_mass(samp, zlo)
+        lf = LF(samp, colname, bins, error='jackknife', sel_dict=sel_dict)
+        samp.comp_limit_mass()
         Mkey = 'z{}'.format(iz)
         lf_dict[Mkey] = lf
     pickle.dump(lf_dict, open(outfile, 'wb'))
+
+
+def mass_limit(samp):
+    """Apply stellar mass completeness limit determined in group_lf.gal_mass_z()"""
+    p = [1.17442222,  29.68880365, -22.58489171]
+    a = 1/(1 + samp.t['z'])
+    Mt = np.polynomial.polynomial.polyval(a, p)
+    sel = samp.t['logmstar'] > Mt
+    samp.t = samp.t[sel]
 
 
 def blf_test(outfile='blf.dat',
@@ -495,8 +324,8 @@ def plot_samples(samp, selcol, bins, label_template, lfcol='r_petro',
 class LF():
     """LF data and methods."""
 
-    def __init__(self, samp, colname, bins, norm=1,
-                 Vmax='Vmax_dec', error='Poisson', sel_dict='None'):
+    def __init__(self, samp, colname, bins, norm=1, Vmax='Vmax_dec',
+                 error='Poisson', sel_dict='None', plot=False):
         """Initialise new LF instance from specified table and column."""
 
         self.sel_dict = sel_dict
@@ -506,14 +335,32 @@ class LF():
         nbin = len(bins) - 1
         self.Mbin = bins[:-1] + 0.5*np.diff(bins)
         self.comp = np.ones(nbin, dtype=bool)
-        self.comp_min = bins[0]
-        self.comp_max = bins[-1]
+
+        if samp is None:
+            return
 
         if colname == 'logmstar':
             absval = samp.tsel()[colname]
         else:
             absval = samp.abs_mags(colname)
-        wt = samp.tsel()['cweight']/samp.tsel()[Vmax]
+
+        if Vmax == 'Guo':
+            # Calculate number of groups in which galaxies of i'th luminosity
+            # are visible
+            nmock = 9
+            ts = samp.tsel()
+            grps = table.unique(ts, keys='GroupID')
+            wt = samp.tsel()['cweight']
+            ngrp = np.zeros((nmock, nbin))
+            for im in range(nbin):
+                zlim = samp.zdm(samp.mlimits[1] - self.Mbin[im], samp.kmean)
+                for ivol in range(nmock):
+                    sel = ((grps['Volume'] == ivol+1) *
+                           (grps['IterCenZ'] <= zlim))
+                    ngrp[ivol, im] = len(grps[sel])
+#            pdb.set_trace()
+        else:
+            wt = samp.tsel()['cweight']/samp.tsel()[Vmax]
 
         if error == 'mock':
             # Mean and sd of several mocks
@@ -527,6 +374,8 @@ class LF():
                 self.phi_jack[ivol, :], edges = np.histogram(
                         absval[sel], bins, weights=wt[sel])
             self.phi_jack *= norm/np.diff(bins)
+            if Vmax == 'Guo':
+                self.phi_jack /= ngrp
             self.ngal = np.mean(ngal, axis=0)
             self.phi = np.mean(self.phi_jack, axis=0)
             self.phi_err = np.std(self.phi_jack, axis=0)
@@ -549,21 +398,17 @@ class LF():
                     self.phi_jack[jack, :] *= norm*njack/(njack-1)/np.diff(bins)
                 self.phi_err = np.sqrt((njack-1) * np.var(self.phi_jack, axis=0))
 
-    def comp_limits(self, samp, zlo, zhi):
-        """Set completeness limits in magnitude (Loveday+2012 sec 3.3)."""
-        self.comp_min = samp.Mvol(samp.mlimits[0], zhi)
-        self.comp_max = samp.Mvol(samp.mlimits[1], zlo)
-        self.comp *= (self.comp_min <= self.Mbin) * (self.Mbin < self.comp_max)
-        print('Mag completeness limits:', self.comp_min, self.comp_max)
+        self.comp_min = samp.comp_min
+        self.comp_max = samp.comp_max
+        self.comp *= ((self.comp_min <= self.bins[:-1]) *
+                      (self.bins[1:] < self.comp_max))
 
-    def comp_limit_mass(self, samp, zlo):
-        """Mass completeness at given redshift.  Uses results from
-        group_lf.gal_mass_z"""
-        p = [1.17442222,  29.68880365, -22.58489171]
-        a = 1/(1 + zlo)
-        self.comp_min = np.polynomial.polynomial.polyval(a, p)
-        self.comp *= (self.Mbin >= self.comp_min)
-        print('Mass completeness limit:', self.comp_min)
+        if plot:
+            plt.clf()
+            plt.scatter(absval, samp.tsel()['zhi'], 1)
+            plt.xlabel('Abs mag')
+            plt.ylabel('zlim')
+            plt.show()
 
     def write(self, f, label):
         """Output to specified file."""
@@ -572,155 +417,6 @@ class LF():
             if self.comp[i]:
                 print(self.Mbin[i], self.ngal[i], self.phi[i], self.phi_err[i],
                       file=f)
-
-    def fn_fit_old(self, fn=None, p0=(-1, -20, -2.5),
-               Mmin=None, Mmax=None, verbose=0):
-        """Fit specfied function."""
-
-        if fn:
-            self.fn = fn
-        else:
-            self.fn = self.Schechter_mag
-        if (Mmin and Mmax):
-            self.Mmin_fit = Mmin
-            self.Mmax_fit = Mmax
-        else:
-            self.Mmin_fit = self.comp_min
-            self.Mmax_fit = self.comp_max
-        idx = (self.comp * (self.phi_err > 0) *
-               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
-        self.ndof = len(self.Mbin[idx]) - 3
-        res = scipy.optimize.fmin(self.lf_resid, p0, xtol=0.001, ftol=0.001,
-                                  full_output=1, disp=0)
-        if verbose:
-            print(res)
-        self.fit_par = res[0]
-        self.chi2 = res[1]
-        warnflag = res[4]
-        if warnflag:
-            print('warnflag =', warnflag)
-        fit_jack = []
-        for jack in range(self.njack):
-            res = scipy.optimize.fmin(
-                    self.lf_resid, res[0], args=(jack,),
-                    xtol=0.001, ftol=0.001, full_output=1, disp=0)
-            fit_jack.append(res[0])
-        self.fit_err = np.std(fit_jack, axis=0)
-        if self.error == 'jackknife':
-            self.fit_err *= np.sqrt(self.njack-1)
-
-    def fn_fit_ap(self, fn, M0=-21, Mmin=None, Mmax=None, verbose=0):
-        """Fit function fn to LF data.
-        M0 is guess at characteristic magnitude (if negaitive) or
-        log stellar mass (if positive)."""
-
-        self.M0 = M0
-#        self.fn = fn
-        if (Mmin and Mmax):
-            self.Mmin_fit = Mmin
-            self.Mmax_fit = Mmax
-        else:
-            self.Mmin_fit = self.comp_min
-            self.Mmax_fit = self.comp_max
-        idx = (self.comp * (self.phi_err > 0) *
-               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
-
-        if M0 < 0:
-            xfac = 2.5  # luminosity
-        else:
-            xfac = 1.0  # stellar mass
-        x = 10**((M0-self.Mbin)/xfac)
-        npar = 3
-        if fn.alpha.fixed:
-            npar = 2
-        self.ndof = len(self.Mbin[idx]) - npar
-        fit = fitting.LevMarLSQFitter()
-#        fit = fitting.SLSQPLSQFitter()
-
-        fit_fn = fit(fn, x[idx], self.phi[idx], weights=1.0/self.phi_err[idx])
-#        pdb.set_trace()
-        self.fit_fn = fit_fn
-        self.fit_par = (-fit_fn.alpha.value,
-                        M0 - xfac**math.log10(fit_fn.x_0.value),
-                        fit_fn.amplitude.value)
-        if verbose:
-#            print(self.fit_par)
-            print(fit_fn)
-        self.chi2 = np.sum((self.phi[idx] - fit_fn(x[idx])/self.phi_err[idx])**2)
-
-        fit_jack = []
-        for jack in range(self.njack):
-            fit_j = fit(fit_fn, x[idx], self.phi_jack[jack, idx],
-                          weights=1.0/self.phi_err[idx])
-            fit_jack.append((-fit_j.alpha.value,
-                             M0 - xfac*math.log10(fit_j.x_0.value),
-                             fit_j.amplitude.value))
-        self.fit_err = np.std(fit_jack, axis=0)
-        if self.error == 'jackknife':
-            self.fit_err *= np.sqrt(self.njack-1)
-
-        return fit_fn
-
-    def fn_fit_sherpa(self, fn, M0=-21, Mmin=None, Mmax=None, verbose=0):
-        """Fit function fn to LF data using Sherpa.
-        M0 is guess at characteristic magnitude (if negative) or
-        log stellar mass (if positive)."""
-
-        self.M0 = M0
-#        self.fn = fn
-        if (Mmin and Mmax):
-            self.Mmin_fit = Mmin
-            self.Mmax_fit = Mmax
-        else:
-            self.Mmin_fit = max(self.bins[0], self.comp_min)
-            self.Mmax_fit = min(self.bins[-1], self.comp_max)
-        idx = (self.comp * (self.phi_err > 0) *
-               (self.Mmin_fit <= self.Mbin) * (self.Mbin < self.Mmax_fit))
-
-        if M0 < 0:  # luminosity with 1 mag bins
-            x = 10**(0.4*(M0-self.Mbin))
-            xu = 10**(0.4*(1+M0-self.Mbin))
-#            dx = np.fabs(np.diff(10**(0.4*(M0-self.bins))))
-        else:  # stellar mass with 1 dex bins
-            x = 10**(self.Mbin - M0)
-            xu = 10**(self.Mbin - M0 + 1)
-#            dx = np.fabs(np.diff(10**(self.bins - M0)))
-        from sherpa.data import Data1DInt
-        from sherpa.astro.models import Schechter
-        from sherpa.fit import Fit
-        from sherpa.optmethods import LevMar, NelderMead
-        from sherpa.stats import Chi2
-        from sherpa.estmethods import Confidence
-
-        d = Data1DInt('All', x[idx], xu[idx], self.phi[idx],
-                      self.phi_err[idx])
-        sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
-        res = sfit.fit()
-#        pdb.set_trace()
-        self.fit_fn = fn
-        sfit.estmethod = Confidence()
-        self.fit_errors = sfit.est_errors()
-#        self.fit_par = (res.alpha.val,
-#                        M0 - xfac**math.log10(res.ref.value),
-#                        res.norm.value)
-        self.fit_par = res.parvals
-        if verbose:
-            print(res)
-        self.chi2 = res.statval
-        self.ndof = res.dof
-
-        fit_jack = []
-        for jack in range(self.njack):
-            d = Data1DInt('All', x[idx], xu[idx],
-                          self.phi_jack[jack, idx], self.phi_err[idx])
-            sfit = Fit(d, fn, stat=Chi2(), method=NelderMead())
-            resj = sfit.fit()
-            fit_jack.append(resj.parvals)
-        self.fit_err = np.std(fit_jack, axis=0)
-        if self.error == 'jackknife':
-            self.fit_err *= np.sqrt(self.njack-1)
-
-        return self.fit_fn
 
     def fn_fit(self, fn, Mmin=None, Mmax=None, verbose=0):
         """Fit function fn to LF data using Sherpa."""
@@ -753,6 +449,7 @@ class LF():
 #                        res.norm.value)
 #        self.fit_par = res.parvals
         if verbose:
+            print('fit range: ', self.Mmin_fit, self.Mmax_fit)
             print(self.res)
 
 #        rproj = RegionProjection()
@@ -778,6 +475,13 @@ class LF():
 #            self.fit_err *= np.sqrt(self.njack-1)
 
         return self.fn
+
+    def ref_fn(self, fn, pars):
+        """Fill LF vales with reference function."""
+
+        self.ngal = np.ones(len(self.Mbin))
+        self.phi = fn(self.Mbin, pars)
+        self.phi_err = np.zeros(len(self.Mbin))
 
     def like_cont_old(self, pp=(0, 1), mp=2, ax=None, label=None,
                   lc_step=32, lc_limits=4,
@@ -972,9 +676,9 @@ class LF():
         M = 10**(logM-logMstar)
         return ln10 * np.exp(-M) * (ps1*M**(alpha1+1) + ps2*M**(alpha2+1))
 
-    def plot(self, ax=None, nmin=1, label=None, xlim=None, ylim=None,
+    def plot(self, ax=None, nmin=1, norm=1, label=None, xlim=None, ylim=None,
              fmt='o', ls='-', clr=None, mfc=None, show_fit=True,
-             schecp=None, finish=False):
+             schecp=None, finish=False, alpha=1):
         """Plot LF and optionally the Schechter fn fit."""
 
         if ax is None:
@@ -984,8 +688,9 @@ class LF():
 #        c = 'k'
         comp = self.comp
         comp *= (self.ngal >= nmin)
-        h = ax.errorbar(self.Mbin[comp], self.phi[comp], self.phi_err[comp],
-                        fmt=fmt, color=clr, mfc=mfc, label=label)
+        h = ax.errorbar(self.Mbin[comp], norm*self.phi[comp],
+                        norm*self.phi_err[comp],
+                        fmt=fmt, color=clr, mfc=mfc, label=label, alpha=alpha)
 #        print(self.Mbin[comp], self.phi[comp])
 #        if show_fit and hasattr(self, 'fit_par'):
 #            x = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
@@ -998,9 +703,9 @@ class LF():
 #            x = 10**(0.4*(self.M0-Mbin))
 #            xu = 10**(0.4*(1+self.M0-Mbin))
 #            dx = np.fabs(np.diff(10**(0.4*(self.M0-bins))))
-            y = self.fn(Mbin)
+            y = norm*self.fn(Mbin)
             show = y > 1e-10
-            ax.plot(Mbin[show], y[show], ls=ls, color=clr)
+            ax.plot(Mbin[show], y[show], ls=ls, color=clr, alpha=alpha)
 #            print(x, y)
 #            pdb.set_trace()
         if xlim:
@@ -1026,6 +731,19 @@ class LF():
         y = self.fn(x, par)
         show = y > 1e-10
         ax.plot(x[show], y[show], ls, color=c)
+
+    def chi2(self, phi2):
+        """chi2 probabilty that two LFs are consistent."""
+
+        if self.bins.any() != phi2.bins.any():
+            print('Warning: LFs have different binning', self.bins, phi2.bins)
+        use = self.comp * phi2.comp * (self.ngal > 4) * (phi2.ngal > 4)
+        var = self.phi_err[use]**2 + phi2.phi_err[use]**2
+        c = np.sum((self.phi[use] - phi2.phi[use])**2/var)
+        nu = len(self.phi[use])
+        p = scipy.stats.chi2.sf(c, nu)
+#        pdb.set_trace()
+        return c, nu, p
 
 
 class LF2():

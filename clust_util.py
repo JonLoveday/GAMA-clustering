@@ -1,10 +1,12 @@
 # Classes and utilities for galaxy clustering
 
+import glob
 import math
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import os
+import pdb
 import scipy.stats
 import subprocess
 
@@ -76,10 +78,10 @@ def xtest(Mlim=(-21, -20.5, -20.45), key='w_p', binning=1, nfac=1,
     """Test cross-correlation using two luminosity-selected samples."""
 
     xi_cmd = '$BIN/xi '
-    selcol = 'r_petro'
+    selcol = 'r_abs'
     samp = gs.GalSample()
     samp.read_gama()
-    samp.vis_calc((lf.sel_gama_mag_lo, lf.sel_gama_mag_hi))
+    samp.vis_calc((samp.sel_mag_lo, samp.sel_mag_hi))
     samp.vmax_calc()
     sel_dict = {selcol: (Mlim[0], Mlim[1])}
     xi_sel(samp, 'gal1.dat', 'ran1.dat', '', nfac, sel_dict=sel_dict,
@@ -159,86 +161,93 @@ def xi_sel(samp, galfile, ranfile, xifile, nfac, sel_dict=None, set_vmax=False,
     samp.t['Vmax_out'] = np.ones(len(samp.t))
     samp.t['weight'] = np.ones(len(samp.t))
 
-    samp.select(sel_dict)
-    ts = samp.tsel()
-    use = samp.t['use']
-    zgal = ts['z']
-    ngal = len(zgal)
-    if nfac*ngal > maxran:
-        nfac = round(maxran/ngal)
-        print('nfac changed to ', nfac)
-    rancat = gs.GalSample(zlimits=samp.zlimits)
-    rancat.cosmo = samp.cosmo
-    rancat.t = Table()
-    if samp.vol_limited:
-        J3_pars = (0, 0, 0)
-        nran = nfac*ngal
-        zran = util.ran_fun(
-                samp.cosmo.vol_ev, samp.zlimits[0], samp.zlimits[1], nran)
-        rancat.t['den'] = np.zeros(nran)
-    else:
-        if J3wt:
-            J3_pars = def_J3_pars
-        else:
-            J3_pars = (0, 0, 0)
-        ndupe = np.array(np.round(
-                nfac*ts['Vmax_raw'] / ts['Vmax_dec']).astype(np.int32))
-#        print(ndupe)
-        nran = np.sum(ndupe)
-        zran = np.zeros(nran)
-        j = 0
-        for i in range(ngal):
-            ndup = ndupe[i]
-            zran[j:j+ndup] = util.ran_fun(
-                    samp.cosmo.vol_ev, np.array(ts['zlo'])[i],
-                    np.array(ts['zhi'])[i], ndup)
-            j += ndup
-
-        # Density for minimum variance weighting
-        zran_hist, bin_edges = np.histogram(zran, bins=50,
-                                            range=samp.zlimits)
-        zran_hist = zran_hist*ngal/nran  # Note cannot use *= due int->float
-        zstep = bin_edges[1] - bin_edges[0]
-        zcen = bin_edges[:-1] + 0.5*zstep
-        V_int = samp.area/3.0 * samp.cosmo.dm(bin_edges)**3
-        Vbin = np.diff(V_int)
-        denbin = zran_hist/Vbin
-
-        samp.t['den'][use] = np.interp(ts['z'], zcen, denbin)
-        rancat.t['den'] = np.interp(zran, zcen, denbin)
-#    rancat.t['den'] = np.zeros(nran)
-
-    rancat.t['use'] = np.ones(nran, dtype=np.bool)
-    rancat.t['z'] = zran
-    # Vmax weighting
-    if set_vmax:
-        samp.t['Vmax_out'][use] = ts['Vmax_dec']
-        rancat.t['Vmax_out'] = ts['Vmax_dec']
-    else:
-        samp.t['Vmax_out'][use] = np.ones(ngal)
-        rancat.t['Vmax_out'] = np.ones(nran)
-    samp.t['weight'][use] = np.ones(ngal)
-    rancat.t['weight'] = np.ones(nran)
-
-    samp.info = {'file': galfile, 'njack': gs.njack,
-                 'set_vmax': set_vmax, 'err_type': 'jack'}
     if sel_dict:
         samp.info.update(sel_dict)
+    samp.select(sel_dict)
+    ts = samp.tsel()
+    use = samp.use
+    zgal = ts['z']
+    ngal = len(zgal)
+
+    samp.info.update({'file': galfile, 'njack': gs.njack,
+                      'set_vmax': set_vmax, 'err_type': 'jack',
+                      'zlimits': samp.zlimits})
+    if J3wt:
+        J3_pars = def_J3_pars
+    else:
+        J3_pars = (0, 0, 0)
     samp.xi_output(galfile, binning, theta_max, J3_pars)
     print(ngal, ' galaxies written to', galfile)
 
+    if ranfile:
+        if nfac*ngal > maxran:
+            nfac = round(maxran/ngal)
+            print('nfac changed to ', nfac)
+        rancat = gs.GalSample(zlimits=samp.zlimits)
+    #    rancat.cosmo = samp.cosmo
+    #    cosmo = samp.cosmo()
+        cosmo = samp.cosmo
+        rancat.t = Table()
+        if samp.vol_limited:
+            J3_pars = (0, 0, 0)
+            nran = nfac*ngal
+            zran = util.ran_fun(
+                    cosmo.vol_ev, samp.zlimits[0], samp.zlimits[1], nran)
+            rancat.t['den'] = np.zeros(nran)
+        else:
+            ndupe = np.array(np.round(
+                    nfac*ts['Vmax_raw'] / ts['Vmax_dec']).astype(np.int32))
+    #        print(ndupe)
+            nran = np.sum(ndupe)
+            zran = np.zeros(nran)
+            j = 0
+            for i in range(ngal):
+                ndup = ndupe[i]
+                zran[j:j+ndup] = util.ran_fun(
+                        cosmo.vol_ev, np.array(ts['zlo'])[i],
+                        np.array(ts['zhi'])[i], ndup)
+                j += ndup
+    
+            # Density for minimum variance weighting
+            zran_hist, bin_edges = np.histogram(zran, bins=50,
+                                                range=samp.zlimits)
+            zran_hist = zran_hist*ngal/nran  # Note cannot use *= due int->float
+            zstep = bin_edges[1] - bin_edges[0]
+            zcen = bin_edges[:-1] + 0.5*zstep
+            V_int = samp.area/3.0 * cosmo.dm(bin_edges)**3
+            Vbin = np.diff(V_int)
+            denbin = zran_hist/Vbin
+    #        pdb.set_trace()
+            samp.t['den'][use] = np.interp(ts['z'], zcen, denbin)
+            rancat.t['den'] = np.interp(zran, zcen, denbin)
+    #    rancat.t['den'] = np.zeros(nran)
+    
+        rancat.use = np.ones(nran, dtype=np.bool)
+        rancat.t['z'] = zran
+        # Vmax weighting
+        if set_vmax:
+            samp.t['Vmax_out'][use] = ts['Vmax_dec']
+            rancat.t['Vmax_out'] = ts['Vmax_dec']
+        else:
+            samp.t['Vmax_out'][use] = np.ones(ngal)
+            rancat.t['Vmax_out'] = np.ones(nran)
+        samp.t['weight'][use] = np.ones(ngal)
+        rancat.t['weight'] = np.ones(nran)
+
+
     # Generate random coords using ransack
-    ranc_file = 'ransack.dat'
-    cmd = "$MANGLE_DIR/bin/ransack -r{} {} {}".format(nran, mask, ranc_file)
-    subprocess.call(cmd, shell=True)
-    data = np.loadtxt(ranc_file, skiprows=1)
-    rancat.t['RA'] = data[:, 0]
-    rancat.t['DEC'] = data[:, 1]
-    rancat.assign_jackknife()
-    rancat.info = {'file': ranfile, 'njack': gs.njack,
-                   'set_vmax': set_vmax, 'err_type': 'jack'}
-    rancat.xi_output(ranfile, binning, theta_max, J3_pars)
-    print(nran, ' randoms written to', ranfile)
+#    if ranfile:
+        ranc_file = 'ransack.dat'
+        cmd = "$MANGLE_DIR/bin/ransack -r{} {} {}".format(nran, mask, ranc_file)
+        subprocess.call(cmd, shell=True)
+        data = np.loadtxt(ranc_file, skiprows=1)
+        rancat.t['RA'] = data[:, 0]
+        rancat.t['DEC'] = data[:, 1]
+        rancat.assign_jackknife('randoms')
+        rancat.info = {'file': ranfile, 'njack': gs.njack,
+                       'set_vmax': set_vmax, 'err_type': 'jack'}
+        rancat.xi_output(ranfile, binning, theta_max, J3_pars)
+        print(nran, ' randoms written to', ranfile)
 
     if run == 1:
         # Run the clustering code executable in $BIN/xi, compiled from xi.c
@@ -277,9 +286,9 @@ def ran_z_gen(samp, nfac):
     return zran
 
 
-# -----------------
-# Plotting routines
-# -----------------
+# -------------------------------
+# Plotting and averaging routines
+# -------------------------------
 
 def cat_stats(infile, nskip=3):
     """Simple catalogue statistics."""
@@ -333,7 +342,7 @@ def zhist(galtemp='gal_{}_{}_{}.dat', rantemp='ran_{}_{}_{}.dat',
             ax = axes.flat[i]
         except:
             ax = axes
-        ax.hist((dg, rg), bins=20, normed=True, histtype='step')
+        ax.hist((dg, rg), bins=20, density=True, histtype='step')
         ax.text(0.1, 0.8, label.format(Mlimits[i], Mlimits[i+1]),
                 transform=ax.transAxes)
     plt.draw()
@@ -343,7 +352,7 @@ def zhist(galtemp='gal_{}_{}_{}.dat', rantemp='ran_{}_{}_{}.dat',
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
 
 
-def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat', nbin=50, normed=True):
+def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat', nbin=50, density=True):
     """Plot redshift histograms for galaxy & random input files to xi.c."""
 
     def read_file(infile, nskip=3):
@@ -355,7 +364,76 @@ def zhist_one(galfile='gal_0_1.dat', ranfile='ran_1.dat', nbin=50, normed=True):
     dg = read_file(galfile)
     rg = read_file(ranfile)
     plt.clf()
-    plt.hist((dg, rg), bins=nbin, normed=normed, histtype='step')
+    plt.hist((dg, rg), bins=nbin, density=density, histtype='step')
+    plt.xlabel('Distance [Mpc/h]')
+    plt.ylabel('Frequency')
+    plt.show()
+
+
+def zhist_mock(gal_list=glob.glob('mock?_gal.dat'), ranfile='mock_gal_ran.dat',
+               nbin=25, density=True):
+    """Plot redshift histograms for mock galaxies & randoms."""
+
+    def read_file(infile, nskip=3):
+        # Read input file into array and return array of distances
+        data = np.loadtxt(infile, skiprows=nskip)
+        dist = np.sqrt(np.sum(data[:, 0:3]**2, axis=1))
+        return dist
+
+    dist = read_file(ranfile)
+    nran = len(dist)
+    rhist, edges = np.histogram(dist, bins=nbin)
+
+    galhist = []
+    ngav = 0
+    for galfile in gal_list:
+        dist = read_file(galfile)
+        ngav += len(dist)
+        hist, _edges = np.histogram(dist, bins=edges)
+        galhist.append(hist)
+    ghmean = np.mean(np.array(galhist), axis=0)
+    ghstd = np.std(np.array(galhist), axis=0)
+    ngav /= 9
+    bins = edges[:-1] + np.diff(edges)
+
+    plt.clf()
+    plt.errorbar(bins, ghmean, ghstd, fmt='none')
+    plt.step(bins, rhist * ngav/nran)
+    plt.xlabel('Distance [Mpc/h]')
+    plt.ylabel('Frequency')
+    plt.show()
+
+
+def zhist_list(file_list, nbin=50, density=True, weights=None, labels=None):
+    """Plot redshift histograms for a list of files."""
+
+    def read_file(infile, nskip=3):
+        # Read input file into array and return array of distances
+        data = np.loadtxt(infile, skiprows=nskip)
+        dist = np.sqrt(np.sum(data[:, 0:3]**2, axis=1))
+        return dist
+
+    plt.clf()
+    i = 0
+    for galfile in file_list:
+        dist = read_file(galfile)
+        if weights:
+            wt = weights[i]*np.ones(len(dist))
+        else:
+            wt = np.ones(len(dist))
+        if labels:
+            lbl = labels[i] + f' x {int(wt[0])}'
+        else:
+            lbl = ''
+        if i == 0:
+            lw = 2
+        else:
+            lw = 1
+        plt.hist(dist, bins=nbin, density=density, weights=wt,
+                 histtype='step', label=lbl, lw=lw)
+        i += 1
+    if labels:
+        plt.legend(loc='upper left')
     plt.xlabel('Distance [Mpc/h]')
     plt.ylabel('Frequency')
     plt.show()
@@ -383,6 +461,21 @@ def sky_dist(galfile='gal_0_1.dat', ranfile=None):
     plt.scatter(rag, decg, 0.1, 'g', edgecolors='face')
 #    plt.subplot(212)
     plt.show()
+
+
+def counts_av(inlist, outfile):
+    """
+    Average pair counts over realisations.
+    Individual realisations are stored as jackknife estimates in output file.
+    """
+
+    pc_list = []
+    for infile in inlist:
+        pc = PairCounts(infile)
+        pc_list.append(pc)
+    pcav = PairCounts()
+    pcav.average(pc_list)
+    pcav.write(outfile)
 
 
 def xi_plot(key, panels, binning=1, jack=0, pi_max=40.0,
@@ -509,6 +602,34 @@ def xi2d_plot(infile, what='logxi', pilim=40.0, rplim=40.0, binning=0,
         fig = plt.gcf()
         fig.set_size_inches(5, 5)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
+
+
+def springel_xir():
+    """Read Springel+2005 DM xi(r)."""
+    data = np.loadtxt(
+            '/Users/loveday/Documents/Research/corrdata/Springel2005/correl_063.txt',
+            skiprows=2)
+    nbin = data.shape[0]
+    xir = Xi1d(nbin, 0, 0.005, 100, 'xir', 'none', {'source': 'Spingel+2005'})
+    xir.sep = data[:, 0]
+    xir.est = np.zeros((nbin, 1))
+    xir.est[:, 0] = data[:, 1]
+    xir.galpairs = data[:, 2]
+    return xir
+
+
+def project_test():
+    """Test projection of xi(r) to wp(rperp)."""
+    xir = springel_xir()
+    wp = xir.project()
+    xir_deproj = wp.xir()
+    plt.clf()
+    plt.plot(xir.sep, xir.est[:, 0], label='xir')
+    plt.plot(xir_deproj.sep, xir_deproj.est[:, 0], label='xir_deproj')
+    plt.plot(wp.sep, wp.est[:, 0], label='wp')
+    plt.loglog()
+    plt.legend()
+    plt.show()
 
 
 # -----------------
@@ -814,7 +935,7 @@ class PairCounts(object):
     def average(self, pcs):
         """Average over different estimates."""
         nest = len(pcs)
-        ests = xrange(nest)
+        ests = range(nest)
         self.na = np.mean([pcs[i].na for i in ests])
         self.nb = np.mean([pcs[i].nb for i in ests])
         self.wa = np.mean([pcs[i].wa for i in ests])
@@ -822,6 +943,7 @@ class PairCounts(object):
         self.njack = nest
         self.n2d = pcs[0].n2d
         self.info = pcs[0].info
+        self.info.update({'err_type': 'mock'})
 
         # Direction-averaged counts
         self.ns = pcs[0].ns
@@ -913,7 +1035,7 @@ class Xi(object):
         ns = galpairs.ns
         smin = galpairs.smin
         smax = galpairs.smax
-        xis = Xi1d(ns, self.njack, smin, smax, 'xis', self.err_type)
+        xis = Xi1d(ns, self.njack, smin, smax, 'xis', self.err_type, self.info)
         xis.sep = galpairs.sep
         xis.galpairs = galpairs.pc[:, 0]
         xis.ranpairs = ranpairs.pc[:, 0]
@@ -949,7 +1071,7 @@ class Xi(object):
             rplim = rpmin + nrp_use*rpstep
 
             xi2 = Xi2d(nrp_use, rpmin, rplim, npi_use, pimin, pilim,
-                       self.njack, self.err_type)
+                       self.njack, self.err_type, self.info)
             xi2.pi = gal2['pi'][:npi_use, :nrp_use]
             xi2.rp = gal2['rp'][:npi_use, :nrp_use]
             xi2.galpairs = gal2['pc'][:npi_use, :nrp_use]
@@ -961,7 +1083,7 @@ class Xi(object):
 
         if key == 'xis':
             xis = self.xis
-            xis.clear_empties()
+#            xis.clear_empties()
             xis.cov = Cov(xis.est[:, 1:], self.err_type)
             return xis
 
@@ -971,17 +1093,17 @@ class Xi(object):
             return xi2
         w_p = xi2.w_p(rp_lim, pi_lim)
         if key == 'w_p':
-            w_p.cov = Cov(w_p.est[:, 1:], self.err_type)
+#            w_p.cov = Cov(w_p.est[:, 1:], self.err_type)
             return w_p
         xir = w_p.xir()
-        xir.cov = Cov(xir.est[:, 1:], self.err_type)
+#        xir.cov = Cov(xir.est[:, 1:], self.err_type)
         return xir
 
 
 class Xi1d(object):
     """1d clustering estimate, including jackknife sub-estimates."""
 
-    def __init__(self, nbin, njack, rmin, rmax, xi_type, err_type):
+    def __init__(self, nbin, njack, rmin, rmax, xi_type, err_type, info):
 
         self.nbin = nbin
         self.njack = njack
@@ -995,6 +1117,7 @@ class Xi1d(object):
         self.ic = 0.0
         self.xi_type = xi_type
         self.err_type = err_type
+        self.info = info
 
     def clear_empties(self):
         """Remove any empty bins with zero galaxy-galaxy pairs."""
@@ -1004,6 +1127,23 @@ class Xi1d(object):
             self.est[keep]
         self.nbin = len(self.sep)
         return self.nbin
+
+    def project(self):
+        """Project xi(r) to w_p(r_perp)."""
+
+        def xi_interp(rpar):
+            return np.interp((rpar**2 + rperp**2)**0.5, self.sep, self.est[:, 0])
+
+        wp = Xi1d(self.nbin, self.njack, self.rmin, self.rmax,
+                  'w_p', self.err_type, self.info)
+        wp.sep = self.sep
+        wp.est = np.zeros((self.nbin, 1))
+        for ibin in range(self.nbin):
+            rperp = self.sep[ibin]
+            result = scipy.integrate.quad(xi_interp, 0.0, self.sep[-1],
+                                          epsabs=1e-3, epsrel=1e-3)
+            wp.est[ibin, 0] = 2*result[0]
+        return wp
 
     def xir(self):
         """Inversion of w_p(r_p) to xi(r) - Saunders et al 1992, eq 26.
@@ -1026,7 +1166,7 @@ class Xi1d(object):
             return xi
 
         xir = Xi1d(self.nbin-1, self.njack, self.rmin, self.rmax,
-                   'xir', self.err_type)
+                   'xir', self.err_type, self.info)
         xir.sep = self.sep[:-1]
         xir.galpairs = self.galpairs[:-1]
         xir.ranpairs = self.ranpairs[:-1]
@@ -1053,15 +1193,17 @@ class Xi1d(object):
 #        print(self.sep, self.est[:, jack])
         ax.errorbar(self.sep, self.est[:, jack]/pl_fit + self.ic,
                     self.cov.sig/pl_fit,
-                    fmt='o', color=color, label=label, capthick=1)
+                    fmt='o', color=color, label=label, capsize=2)
 #        else:
 #            ax.errorbar(self.sep, self.est[:, jack] + self.ic, self.cov.sig,
 #                        fmt='o', label=label, capthick=1)
 
         if fout:
-            print(label, file=fout)
+            print(label, 'ic=', self.ic, file=fout)
+            print(self.info, file=fout)
             for i in range(self.nbin):
-                print(self.sep[i], self.est[i, jack] + self.ic,
+                print(self.sep[i], self.galpairs[i], self.ranpairs[i],
+                      self.est[i, jack] + self.ic,
                       self.cov.sig[i], file=fout)
 
     def fit(self, fit_range, jack=0, logfit=0, ic_rmax=0, neig=0,
@@ -1190,7 +1332,8 @@ class Xi1d(object):
 class Xi2d(object):
     """2d clustering estimate."""
 
-    def __init__(self, nrp, rpmin, rpmax, npi, pimin, pimax, njack, err_type):
+    def __init__(self, nrp, rpmin, rpmax, npi, pimin, pimax, njack, err_type,
+                 info):
         self.nrp = nrp
         self.rpmin = rpmin
         self.rpmax = rpmax
@@ -1209,6 +1352,7 @@ class Xi2d(object):
         self.njack = njack
         self.est = np.zeros((npi, nrp, njack+1))
         self.err_type = err_type
+        self.info = info
         self.galpairs = np.zeros((npi, nrp, njack+1))
         self.ranpairs = np.zeros((npi, nrp, njack+1))
 
@@ -1289,7 +1433,7 @@ class Xi2d(object):
                                     fac4*gamma*(2+gamma)/(3-gamma)/(5-gamma)*P4)
 
     def plot(self, ax, what='logxi', jack=0, prange=(-2, 2), mirror=True,
-             cbar=True, cmap=None, aspect='auto'):
+             cbar=True, cmap=None, aspect='auto', axlabels=True):
         nrp = self.nrp
         npi = self.npi
         if what == 'logxi':
@@ -1327,17 +1471,16 @@ class Xi2d(object):
         im = ax.imshow(ximap, cmap, aspect=aspect, interpolation='none',
                        vmin=prange[0], vmax=prange[1],
                        extent=extent)
-        ax.set_xlabel(r'$r_\perp\ [h^{-1} {{\rm Mpc}}]$')
-        ax.set_ylabel(r'$r_\parallel\ [h^{-1} {{\rm Mpc}}]$')
-#        divider = make_axes_locatable(ax)
-#        cax = divider.append_axes("top", size="5%", pad=0.5)
+        if axlabels:
+            ax.set_xlabel(r'$r_\perp\ [h^{-1} {{\rm Mpc}}]$')
+            ax.set_ylabel(r'$r_\parallel\ [h^{-1} {{\rm Mpc}}]$')
 
         if what == 'logxi':
             Li_cont = [0.1875]
             while Li_cont[-1] < 48:
                 Li_cont.append(2*Li_cont[-1])
             Li_cont = np.log10(Li_cont)
-            cont = ax.contour(np.flipud(ximap), Li_cont, aspect=aspect,
+            cont = ax.contour(np.flipud(ximap), Li_cont, # aspect=aspect,
                               extent=extent)
 
 #        cb = plt.colorbar(im, cax=cax, orientation='horizontal')
@@ -1347,6 +1490,8 @@ class Xi2d(object):
             cax = divider.append_axes("right", size="5%", pad=0.05)
             cb = plt.colorbar(im, cax=cax)
             cb.set_label(label)
+
+        return im
 
     def vdist(self, ijack=0, lgximin=-2, hsmooth=0, neig=0, plots=1):
         """Velocity distribution function via Fourier transform of
@@ -1440,7 +1585,7 @@ class Xi2d(object):
         npi = int((pilim - self.pimin)/self.pistep)
         pilim = self.pimin + npi*self.pistep
         w_p = Xi1d(self.nrp, self.njack, self.rpmin, rplim, 'w_p',
-                   self.err_type)
+                   self.err_type, self.info)
         w_p.sep = self.rpc
         use = np.sum(self.galpairs[:npi, :nrp, 0], axis=0) > 0
         w_p.sep[use] = np.average(
@@ -1695,3 +1840,17 @@ class Cov(object):
             plt.show()
 
 
+class RefXi(object):
+    """Reference correlation function."""
+
+    def __init__(self, name='DM_wp'):
+        """Read in tabulated function."""
+
+        if name == 'DM_wp':
+            xir = springel_xir()
+            self.xi = xir.project()
+            self.name = name
+
+    def interp(self, r):
+        """Interpolate reference function."""
+        return np.interp(r, self.xi.sep, self.xi.est[:, 0])

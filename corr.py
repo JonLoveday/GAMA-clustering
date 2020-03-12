@@ -5846,6 +5846,51 @@ def pvd_stream_test(infile='xi_z_obs_av.dat', pi_max=40, rp_max=100,
 def pvd_stream_plot(direct='pvd_vol.npz',
                     infiles=('pvd_stream_vol_measflow.dat',
                              'pvd_stream_vol.dat', 'pvd_beta_neig0.dat'),
+                    labels=None, rplim=(0.01, 10), siglim=(0, 1000), alpha=0.2,
+                    loc=0, plot_file=None, plot_size=def_plot_size):
+    """Plot pvd_stream results (sigma only)."""
+
+    plt.clf()
+    data = np.load(direct)
+    plt.plot(data['sep'], data['slp_exp'], 'k-', label='Direct')
+    plt.fill_between(data['sep'], data['slp_exp'] - data['slp_exp_err'],
+                     data['slp_exp'] + data['slp_exp_err'],
+                     facecolor='k', alpha=alpha)
+    try:
+        filelist = glob.glob(infiles)
+    except:
+        filelist = infiles
+
+    print(filelist)
+    iplot = 0
+    for infile, label in zip(filelist, labels):
+        dict = pickle.load(open(infile, 'r'))
+        if 'beta' in dict:
+            print('beta, gamma, r0: {:4.2f} {:4.2f} {:4.1f}'.format(
+                dict['beta'], dict['gamma'], dict['r0']))
+#        print 'sigma:', dict['sigma']
+#        print 'sig_lo:', dict['sig_lo']
+#        print 'sig_hi:', dict['sig_hi']
+        plt.errorbar(dict['rp'], dict['sigma'],
+                     (dict['sig_lo'], dict['sig_hi']),
+                     fmt=symb_list[iplot], label=label, capthick=1)
+        iplot += 1
+    plt.xlim(rplim)
+    plt.ylim(siglim)
+    plt.semilogx(basex=10, nonposy='clip')
+    plt.xlabel(r'$r_\bot\ [h^{-1} {\rm Mpc}]$')
+    plt.ylabel(r'$\sigma_{12}\ [{\rm km/s}]$')
+    plt.legend(loc=loc, ncol=2)
+    plt.draw()
+    if plot_file:
+        fig = plt.gcf()
+        fig.set_size_inches(plot_size)
+        plt.savefig(plot_dir + plot_file, bbox_inches='tight')
+
+
+def pvd_stream_plot_old(direct='pvd_vol.npz',
+                    infiles=('pvd_stream_vol_measflow.dat',
+                             'pvd_stream_vol.dat', 'pvd_beta_neig0.dat'),
                     rplim=(0.01, 10), siglim=(0, 1000), alpha=0.1,
                     plot_file=None, plot_size=def_plot_size):
     """Plot pvd_stream results (sigma only)."""
