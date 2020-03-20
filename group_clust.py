@@ -152,7 +152,7 @@ def groups_gen(zlimits=(0.002, 0.1), nfac=10):
     # Galaxy sample
     galxs = gs.GalSample(zlimits=zlimits)
     galxs.read_gama()
-    galxs.vis_calc()
+    galxs.vis_calc((galxs.sel_mag_lo, galxs.sel_mag_hi))
     galxs.vmax_calc()
     cu.xi_sel(galxs, 'gal.dat', 'gal_ran.dat', '',
               nfac, set_vmax=False,
@@ -175,7 +175,7 @@ def groups_mass(zlimits=(0.002, 0.5), mbins=mass_bins, nfac=10):
     # Galaxy sample
     galxs = gs.GalSample(zlimits=zlimits)
     galxs.read_gama()
-    galxs.vis_calc()
+    galxs.vis_calc((galxs.sel_mag_lo, galxs.sel_mag_hi))
     galxs.add_vmax()
     cu.xi_sel(galxs, 'gal.dat', 'gal_ran.dat', '',
               nfac, set_vmax=False,

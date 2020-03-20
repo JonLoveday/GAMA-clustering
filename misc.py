@@ -2250,7 +2250,7 @@ def subplot_test():
 
 def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
               plot_file='fields.pdf', target_list='targets.txt',
-              xml_file='waves.xml'):
+              target_csv='targets.csv', xml_file='waves.xml'):
     """Plot LSST DDFs with VISTA pointings.
     ELAIS-S1 00 37 48  ( 9.45)  -44 00 00  (-44.0)
     XMM-LSS  02 22 50  (35.71)  -04 45 00  (-4.75)
@@ -2259,18 +2259,15 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
 
     global atot, btot
 
-    field_list = [
+    field_list_old = [
             ['ES1', 9.45, -44.0, [
              [9.45, -43.50, 0, 'VIDEO-N', ''],
              [9.45, -44.50, 0, 'VIDEO-S', ''],
              [7.85, -42.58, 0, 'VEILS-1', 'ZYH'],
              [7.85, -43.67, 0, 'VEILS-2', 'ZYH'],
-#             [9.45, -42.50, 0, 'WAVES-1', 'ZYJHK'],
              [9.70, -42.50, 0, 'WAVES-1', 'ZYJHK'],
              [7.75, -44.87, 1, 'WAVES-2', 'ZYJHK'],
              [9.45, -45.50, 0, 'WAVES-3', 'ZYJHK'],
-#             [11.20, -44.80, 1, 'WAVES-4', 'ZYJHK'],
-#             [11.20, -43.30, 1, 'WAVES-5', 'ZYJHK']
              [11.15, -44.75, 1, 'WAVES-4', 'ZYJHK'],
              [11.15, -43.30, 1, 'WAVES-5', 'ZYJHK']
              ]],
@@ -2295,12 +2292,46 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
              ]],
             ['COS', 150.1, +2.18, [
                     [150.02, 2.22, 0, 'ultraVISTA', 'Z'],
-#                    [150.02, 1.22, 0, 'WAVES-1', 'ZYJHK'],
-#                    [150.02, 3.22, 0, 'WAVES-2', 'ZYJHK'],
-#                    [148.8, 1.48, 1, 'WAVES-3', 'ZYJHK'],
-#                    [148.8, 2.98, 1, 'WAVES-4', 'ZYJHK'],
-#                    [151.2, 1.48, 1, 'WAVES-5', 'ZYJHK'],
-#                    [151.2, 2.96, 1, 'WAVES-6', 'ZYJHK']
+                    [150.02, 1.18, 0, 'WAVES-1', 'ZYJHK'],
+                    [150.02, 3.26, 0, 'WAVES-2', 'ZYJHK'],
+                    [148.8, 1.50, 1, 'WAVES-3', 'ZYJHK'],
+                    [148.8, 2.95, 1, 'WAVES-4', 'ZYJHK'],
+                    [151.2, 1.50, 1, 'WAVES-5', 'ZYJHK'],
+                    [151.2, 2.95, 1, 'WAVES-6', 'ZYJHK']
+            ]]]
+    field_list = [
+            ['ES1', 9.45, -44.0, [
+             [9.45, -43.50, 0, 'VIDEO-N', ''],
+             [9.45, -44.50, 0, 'VIDEO-S', ''],
+             [7.85, -42.58, 0, 'VEILS-1', 'ZYH'],
+             [7.85, -43.67, 0, 'VEILS-2', 'H'],
+             [9.70, -42.50, 0, 'WAVES-1', 'HK'],
+             [7.75, -44.87, 1, 'WAVES-2', 'ZYJHK'],
+             [9.45, -45.50, 0, 'WAVES-3', 'HK'],
+             [11.15, -44.75, 1, 'WAVES-4', 'HK'],
+             [11.15, -43.30, 1, 'WAVES-5', 'ZYJHK']
+             ]],
+            ['XMM', 35.71, -4.75, [
+             [34.425, -4.85, 1, 'VIDEO-1', ''],
+             [35.50, -4.80, 1, 'VIDEO-2', ''],
+             [36.575, -4.73, 1, 'VIDEO-3', ''],
+             [36.00, -6.21, 1, 'VEILS-1', ''],
+             [35.00, -6.12, 1, 'VEILS-2', ''],
+             [34.90, -3.60, 0, 'WAVES-1', 'ZYJHK'],
+             [36.40, -3.60, 0, 'WAVES-2', 'ZYJHK']
+             ]],
+            ['CDF', 53.125, -28.1, [
+             [52.53, -27.57, 0, 'VIDEO-1', ''],
+             [52.53, -28.64, 0, 'VIDEO-2', ''],
+             [53.83, -27.98, 1, 'VIDEO-3', ''],
+             [54.03, -26.75, 0, 'VEILS-1', ''],
+             [54.03, -29.28, 0, 'VEILS-2', ''],
+             [55.00, -27.98, 1, 'WAVES-1', ''],
+             [52.53, -26.55, 0, 'WAVES-2', ''],
+             [52.53, -29.64, 0, 'WAVES-3', 'HK']
+             ]],
+            ['COS', 150.1, +2.18, [
+                    [150.02, 2.22, 0, 'ultraVISTA', ''],
                     [150.02, 1.18, 0, 'WAVES-1', 'ZYJHK'],
                     [150.02, 3.26, 0, 'WAVES-2', 'ZYJHK'],
                     [148.8, 1.50, 1, 'WAVES-3', 'ZYJHK'],
@@ -2338,8 +2369,8 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
             ax.text(xhi-0.1*xfac, y+0.1, label)
             ax.text(xhi-0.1*xfac, y-0.1, bands)
             c = SkyCoord(x, y, frame='icrs', unit='deg')
-            ra = c.ra.to_string(unit=u.hour, sep=' ')
-            dec = c.dec.to_string(unit=u.degree, sep=' ')
+            ra = c.ra.to_string(unit=u.hour, sep=':', pad=True)
+            dec = c.dec.to_string(unit=u.degree, sep=':', pad=True)
 #            pdb.set_trace()
             angle = 90 * rot
             print(f'''<SURVEY_AREA coordSys="FK5 (J2000)" exclude="false"
@@ -2348,8 +2379,10 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
 ''', file=fx)
             for band in bands:
                 info = band
+                note = ''
                 if rot:
                     info += ' rot'
+                    note = 'rot'
                 if band == 'J':
                     time = 0.25
                 else:
@@ -2360,6 +2393,8 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
                 if band in 'JHK':
                     btot += time
                     print(f'\Target{{B}}{{{name} {label}}}{{{ra}}}{{{dec}}}{{{time}}}{{}}{{1.5d}}{{{info}}}{{}}', file=f)
+            if bands != '':
+                print(f'{name}-{label}, {ra}, {dec}, J2000, {note}', file=fc)
 
         fx = open(name+'.xml', 'w')
         print(f'''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -2383,6 +2418,8 @@ tileAngle="0" tileOverlapX="60.0" tileOverlapY="60.0">
 
     atot, btot = 0, 0
     f = open(target_list, 'w')
+    fc = open(target_csv, 'w')
+    print('Name, RA, Dec, System, Note', file=fc)
     plt.clf()
     ax = plt.subplot(221)
     plot_field(*field_list[0])
