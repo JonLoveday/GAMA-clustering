@@ -2592,3 +2592,7 @@ def abs_mag(m, z, H0=100, omega_l=0.7):
     dm = cosmo.distmod(z)
 #    pdb.set_trace()
     print(m - dm.value - kc + 1.75*z)
+
+
+def import_test():
+    print('hello world')

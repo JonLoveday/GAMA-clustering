@@ -888,7 +888,7 @@ class PairCounts(object):
     def sum(self, pcs):
         """Sum over GAMA regions."""
         nest = len(pcs)
-        ests = xrange(nest)
+        ests = range(nest)
         self.na = np.sum([pcs[i].na for i in ests])
         self.nb = np.sum([pcs[i].nb for i in ests])
         self.wa = np.sum([pcs[i].wa for i in ests])
