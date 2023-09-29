@@ -1,0 +1,97 @@
+from astropy.table import Table
+from kcorrect.kcorrect import Kcorrect
+import numpy
+import os
+import util
+
+responses = ['galex_FUV', 'galex_NUV',
+             'vst_u', 'vst_g', 'vst_r', 'vst_i',
+             'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
+             'wise_w1', 'wise_w2']
+fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
+          'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
+nband = len(responses)
+pdeg = 4
+
+def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
+          h=1, Om0=0.7, z0=0, ntest=10):
+    """K-corrections for GAMA-KiDS-VIKING (GKV) catalogues."""
+    
+    cosmo = util.CosmoLookup(h, Om0, zbins=np.linspace(0.0001, 2, 200))
+    kc = Kcorrect(responses, cosmo=cosmo)
+
+    intbl = Table.read(infile)
+    if ntest:
+        intbl = intbl[ntest]
+    ngal = len(intbl)
+    redshift = intbl['Z']
+
+    flux = np.zeros((nband, ngal))
+    flux_err, ivar = np.zeros((nband, ngal)), np.zeros((nband, ngal))
+    i = 0
+    for fname in fnames:
+        flux[i, :] = intbl[f'flux_{fname}']
+        flux_err[i, :] = intbl[f'flux_err_{fname}']
+        i += 1
+
+    # For missing bands, set flux and ivar both to zero
+    fix = (flux > 1e10) + (flux < -900) + (flux_err <= 0)
+    flux[fix] = 0
+    ivar[fix] = 0
+    ivar[~fix] = flux_err**-2
+    print('Fixed ', len(flux[fix]), 'missing fluxes')
+
+    coeffs = kc.fit_coeffs(redshift, flux, ivar)
+    k = kc.kcorrect(redshift=redshift, coeffs=coeffs, band_shift=z0)
+
+    print('kcorrect finished, now fitting polynomials')
+
+    # Plot the k-corrections
+    fig, axes = plt.subplots(3, 5, sharex=True)
+    for iband in range(nband):
+        ax = aces.flatten[iband]
+        ax.scatter(redshift, k[:, iband], s=0.1)
+        ax.text(0.5, 0.8, fname[iband], transform=ax.transAxes)
+    plt.xlabel('Redshift')
+    plt.ylabel('K-correction')
+    plt.show()
+
+    # Polynomial fits to r-band K-correction
+
+    # Reconstruct K(z)
+    nz = 50
+    dz = 0.01
+    redshifts = np.linspace(0.01, 0.5, 50)
+    pcoeffs = np.zeros((5, nz))
+    sig = np.zeros(nband)
+    kall = np.zeros((ngal, nz))
+    kcmean = np.zeros(nz)
+    kcsig = np.zeros(nz)
+    pc05 = np.zeros(nz)
+    pc95 = np.zeros(nz)
+    pcmean = np.zeros(pdeg+1)
+    pcsig = np.zeros(pdeg+1)
+    pcall = np.zeros(ngal, pdeg+1)
+    nplot = 4
+
+    fig, axes = plt.subplots(5, 1, sharex=True)
+    plt.xlabel('Redshift')
+    plt.ylabel('K(z)')
+    kz = kc.kcorrect(redshift=redshifts, coeffs=coeffs, band_shift=z0)
+    iband = 4
+    for igal in range(ngal):
+        pc = Polynomial.fit(redshifts, kz[iband, :], deg=pdeg)
+        pcoef = pc.coef
+        pcoeffs[igal, :] = pcoef
+        kall[i, :] = kz
+        kcmean += kz
+        kcsig += kz**2
+        pcall[i, :] = pcoef
+        pcmean += pcoef
+        pcsig += pcoef**2
+        if (i < nplot):
+          fit = pc(redshifts-z0)
+          plt.scatter(redshifts, kc, s=0.1)
+          plt.plot(redshifts, fit)
+    outtbl = Table([k, pc], names=('K-correction', 'pcoeffs'))
+    outtbl.write(outfile)
