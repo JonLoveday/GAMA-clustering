@@ -70,9 +70,9 @@ class CosmoLookup():
         self._H0 = H0
         self._zrange = zlimits
         self._z = np.linspace(zlimits[0], zlimits[1], nz)
-        self._dm = cosmo.comoving_distance(self._z)
-        self._dV = cosmo.differential_comoving_volume(self._z)
-        self._dist_mod = cosmo.distmod(self._z)
+        self._dm = cosmo.comoving_distance(self._z).value
+        self._dV = cosmo.differential_comoving_volume(self._z).value
+        self._dist_mod = cosmo.distmod(self._z).value
         print('CosmoLookup: H0={}, Omega_l={}, P={}'.format(H0, omega_l, P))
 
     def dm(self, z):

@@ -325,10 +325,11 @@ class LF():
     """LF data and methods."""
 
     def __init__(self, samp, colname, bins, norm=1, Vmax='Vmax_dec',
-                 error='Poisson', sel_dict='None', plot=False):
+                 error='Poisson', sel_dict='None', info='None', plot=False):
         """Initialise new LF instance from specified table and column."""
 
         self.sel_dict = sel_dict
+        self.info = info
         self.error = error
 
         self.bins = bins
@@ -358,7 +359,6 @@ class LF():
                     sel = ((grps['Volume'] == ivol+1) *
                            (grps['IterCenZ'] <= zlim))
                     ngrp[ivol, im] = len(grps[sel])
-#            pdb.set_trace()
         else:
             wt = samp.tsel()['cweight']/samp.tsel()[Vmax]
 
@@ -402,6 +402,7 @@ class LF():
         self.comp_max = samp.comp_max
         self.comp *= ((self.comp_min <= self.bins[:-1]) *
                       (self.bins[1:] < self.comp_max))
+        # pdb.set_trace()
 
         if plot:
             plt.clf()
@@ -678,20 +679,23 @@ class LF():
 
     def plot(self, ax=None, nmin=1, norm=1, label=None, xlim=None, ylim=None,
              fmt='o', ls='-', clr=None, mfc=None, show_fit=True,
-             schecp=None, finish=False, alpha=1):
-        """Plot LF and optionally the Schechter fn fit."""
+             schecp=None, finish=False, alpha=[1, 1], markersize=None):
+        """Plot LF and optionally the Schechter fn fit.
+        First element of alpha is for symbols, second for lines."""
 
         if ax is None:
             plt.clf()
             ax = plt.subplot(111)
-#        c = next(ax._get_lines.prop_cycler)['color']
+        if clr is None:
+            clr = next(ax._get_lines.prop_cycler)['color']
 #        c = 'k'
         comp = self.comp
         comp *= (self.ngal >= nmin)
         h = ax.errorbar(self.Mbin[comp], norm*self.phi[comp],
                         norm*self.phi_err[comp],
-                        fmt=fmt, color=clr, mfc=mfc, label=label, alpha=alpha)
-#        print(self.Mbin[comp], self.phi[comp])
+                        fmt=fmt, color=clr, mfc=mfc, label=label,
+                        alpha=alpha[0], markersize=markersize)
+        # print(self.Mbin[comp], norm*self.phi[comp])
 #        if show_fit and hasattr(self, 'fit_par'):
 #            x = np.linspace(self.Mmin_fit, self.Mmax_fit, 100)
 #            y = self.fn(x, self.fit_par)
@@ -705,7 +709,7 @@ class LF():
 #            dx = np.fabs(np.diff(10**(0.4*(self.M0-bins))))
             y = norm*self.fn(Mbin)
             show = y > 1e-10
-            ax.plot(Mbin[show], y[show], ls=ls, color=clr, alpha=alpha)
+            ax.plot(Mbin[show], y[show], ls=ls, color=clr, alpha=alpha[1])
 #            print(x, y)
 #            pdb.set_trace()
         if xlim:

@@ -15,7 +15,7 @@ from astropy.io import fits
 from astropy.modeling import models, fitting
 from astropy.table import Table, join
 from astropy import units as u
-from astLib import astCalc
+#from astLib import astCalc
 #import KCorrect as KC
 import pdb
 import matplotlib as mpl
@@ -29,7 +29,7 @@ from matplotlib.transforms import Affine2D
 import mpl_toolkits.axisartist.floating_axes as floating_axes
 import mpl_toolkits.axisartist.angle_helper as angle_helper
 from mpl_toolkits.axisartist.grid_finder import MaxNLocator
-import mpmath
+#import mpmath
 #import pyqt_fit.kde
 import scipy.integrate
 import scipy.optimize
@@ -2259,7 +2259,7 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
 
     global atot, btot
 
-    field_list_old = [
+    field_list_104 = [
             ['ES1', 9.45, -44.0, [
              [9.45, -43.50, 0, 'VIDEO-N', ''],
              [9.45, -44.50, 0, 'VIDEO-S', ''],
@@ -2299,16 +2299,16 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
                     [151.2, 1.50, 1, 'WAVES-5', 'ZYJHK'],
                     [151.2, 2.95, 1, 'WAVES-6', 'ZYJHK']
             ]]]
-    field_list = [
+    field_list_108 = [
             ['ES1', 9.45, -44.0, [
              [9.45, -43.50, 0, 'VIDEO-N', ''],
              [9.45, -44.50, 0, 'VIDEO-S', ''],
              [7.85, -42.58, 0, 'VEILS-1', 'ZYH'],
              [7.85, -43.67, 0, 'VEILS-2', 'H'],
-             [9.70, -42.50, 0, 'WAVES-1', 'HK'],
+             [9.70, -42.50, 0, 'WAVES-1', 'JHK'],
              [7.75, -44.87, 1, 'WAVES-2', 'ZYJHK'],
-             [9.45, -45.50, 0, 'WAVES-3', 'HK'],
-             [11.15, -44.75, 1, 'WAVES-4', 'HK'],
+             [9.45, -45.50, 0, 'WAVES-3', 'JHK'],
+             [11.15, -44.75, 1, 'WAVES-4', 'JHK'],
              [11.15, -43.30, 1, 'WAVES-5', 'ZYJHK']
              ]],
             ['XMM', 35.71, -4.75, [
@@ -2328,7 +2328,7 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
              [54.03, -29.28, 0, 'VEILS-2', ''],
              [55.00, -27.98, 1, 'WAVES-1', ''],
              [52.53, -26.55, 0, 'WAVES-2', ''],
-             [52.53, -29.64, 0, 'WAVES-3', 'HK']
+             [52.53, -29.64, 0, 'WAVES-3', 'JHK']
              ]],
             ['COS', 150.1, +2.18, [
                     [150.02, 2.22, 0, 'ultraVISTA', ''],
@@ -2338,6 +2338,47 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
                     [148.8, 2.95, 1, 'WAVES-4', 'ZYJHK'],
                     [151.2, 1.50, 1, 'WAVES-5', 'ZYJHK'],
                     [151.2, 2.95, 1, 'WAVES-6', 'ZYJHK']
+            ]]]
+
+    field_list = [
+            ['ES1', 9.45, -44.0, [
+             [9.45, -43.50, 0, 'VIDEO-N', ''],
+             [9.45, -44.50, 0, 'VIDEO-S', ''],
+             [7.85, -42.58, 0, 'VEILS-1', ''],
+             [7.85, -43.67, 0, 'VEILS-2', ''],
+             [9.70, -42.50, 0, 'WAVES-1', 'JHK'],
+             [7.75, -44.87, 1, 'WAVES-2', 'JHK'],
+             [9.45, -45.50, 0, 'WAVES-3', 'JHK'],
+             [11.15, -44.75, 1, 'WAVES-4', 'JHK'],
+             [11.15, -43.30, 1, 'WAVES-5', 'JHK']
+             ]],
+            ['XMM', 35.71, -4.75, [
+             [34.425, -4.85, 1, 'VIDEO-1', ''],
+             [35.50, -4.80, 1, 'VIDEO-2', ''],
+             [36.575, -4.73, 1, 'VIDEO-3', ''],
+             [36.00, -6.21, 1, 'VEILS-1', ''],
+             [35.00, -6.12, 1, 'VEILS-2', ''],
+             [34.90, -3.60, 0, 'WAVES-1', 'JHK'],
+             [36.40, -3.60, 0, 'WAVES-2', 'ZYJHK']
+             ]],
+            ['CDF', 53.125, -28.1, [
+             [52.53, -27.57, 0, 'VIDEO-1', ''],
+             [52.53, -28.64, 0, 'VIDEO-2', ''],
+             [53.83, -27.98, 1, 'VIDEO-3', ''],
+             [54.03, -26.75, 0, 'VEILS-1', ''],
+             [54.03, -29.28, 0, 'VEILS-2', ''],
+             [55.00, -27.98, 1, 'WAVES-1', ''],
+             [52.53, -26.55, 0, 'WAVES-2', ''],
+             [52.53, -29.64, 0, 'WAVES-3', '']
+             ]],
+            ['COS', 150.1, +2.18, [
+                    [150.02, 2.22, 0, 'ultraVISTA', ''],
+                    [150.02, 1.18, 0, 'WAVES-1', ''],
+                    [150.02, 3.26, 0, 'WAVES-2', ''],
+                    [148.8, 1.50, 1, 'WAVES-3', ''],
+                    [148.8, 2.95, 1, 'WAVES-4', 'JHK'],
+                    [151.2, 1.50, 1, 'WAVES-5', 'JHK'],
+                    [151.2, 2.95, 1, 'WAVES-6', 'JHK']
             ]]]
 
     long_name = {'ES1': 'ELAIS-S1', 'XMM': 'XMM-LSS', 'CDF': 'ECDF-S',
@@ -2373,9 +2414,10 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
             dec = c.dec.to_string(unit=u.degree, sep=':', pad=True)
 #            pdb.set_trace()
             angle = 90 * rot
-            print(f'''<SURVEY_AREA coordSys="FK5 (J2000)" exclude="false"
-                  height="{tiley}" lat="{dec}" long="{ra}" number="1"
-                  posangle="{angle}" type="Geodesic Rectangle" width="{tilex}"/>
+            if bands != '':
+                print(f'''<SURVEY_AREA coordSys="FK5 (J2000)" exclude="false"
+                      height="{tiley}" lat="{dec}" long="{ra}" number="1"
+                      posangle="{angle}" type="Geodesic Rectangle" width="{tilex}"/>
 ''', file=fx)
             for band in bands:
                 info = band
@@ -2397,16 +2439,21 @@ def ddf_plots(tilex=1.475, tiley=1.0173, plot_size=(12, 12),
                 print(f'{name}-{label}, {ra}, {dec}, J2000, {note}', file=fc)
 
         fx = open(name+'.xml', 'w')
+#         print(f'''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+# <SURVEY backtrackStep="100.0" id="{name}" ip="VIRCAM-104.04" maxJitter="15.0"
+# tileAngle="0" tileOverlapX="60.0" tileOverlapY="60.0">
+#     ''', file=fx)
         print(f'''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<SURVEY backtrackStep="100.0" id="{name}" ip="VIRCAM-104.04" maxJitter="15.0"
-tileAngle="0" tileOverlapX="60.0" tileOverlapY="60.0">
+<SURVEY backtrackStep="100.0" id="{name}" ip="VIRCAM-109.04" maxJitter="15.0"
+tileAngle="0" tileOverlapX="0.0" tileOverlapY="0.0">
     ''', file=fx)
         xfac = 1.0/math.cos(math.radians(y0))
         xmin = x0 - 0.5*xfac*field_size
         xmax = x0 + 0.5*xfac*field_size
         ymin = y0 - 0.5*field_size
         ymax = y0 + 0.5*field_size
-        ax.axis((xmax, xmin, ymin, ymax), 'square')
+        ax.axis((xmax, xmin, ymin, ymax))
+#        ax.axis('square')
         plot_circle(x0, y0)
         for tile in tile_list:
             plot_tile(*tile)
@@ -2592,3 +2639,15 @@ def abs_mag(m, z, H0=100, omega_l=0.7):
     dm = cosmo.distmod(z)
 #    pdb.set_trace()
     print(m - dm.value - kc + 1.75*z)
+
+
+def import_test():
+    print('hello world')
+
+
+def ransack_plot(infile='ransack.dat'):
+    """Plot ransack points"""
+    data = np.loadtxt(infile, skiprows=1)
+    plt.clf()
+    plt.scatter(data[:, 0], data[:, 1], s=0.01)
+    plt.show()

@@ -52,8 +52,7 @@ comp_tab = (1.0, 1.0, 0.99, 0.97, 0.98, 0.98, 0.98, 0.97, 0.96, 0.96,
 
 metadata_conflicts = 'silent'  # Alternatives are 'warn', 'error'
 
-#H0, cosmo, kz0, ez0, ev_model = 100.0, 0, 0, 0, 'z'
-
+# k-correction coeffs for GAMA group mocks, see Robotham+2011, eqn (8)
 mock_pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
 
 
@@ -196,12 +195,6 @@ class GalSample():
         njack = 9
         ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5)
 
-        def z_comp(r_fibre):
-            """Sigmoid function fit to redshift succcess given r_fibre,
-            from misc.zcomp."""
-            p = (22.42, 2.55, 2.24)
-            return (1.0/(1 + np.exp(p[1]*(r_fibre-p[0]))))**p[2]
-
 #        # GAMA selection limits
 #        def sel_mag_lo(z, galdat):
 #            """r_petro > self.mlimits[0]."""
@@ -247,35 +240,6 @@ class GalSample():
         self.t['colour'][sel] = 'b'
         sel = (gr >= grcut)
         self.t['colour'][sel] = 'r'
-
-        # Finally calculate visibility limits and hence Vmax
-#        self.vis_calc((sel_mag_lo, sel_mag_hi))
-#        self.vmax_calc()
-
-#        z = self.t['z']
-#        kc = self.t['KCORR_R']
-#        self.t['ABSMAG_R'] = (t['R_PETRO'] - cosmo.dist_mod(z) - kc +
-#                              cosmo.ecorr(z))
-#        self.t['R_SB_ABS'] = (t['R_SB'] - 10*np.log10(1 + z) - kc +
-#                              cosmo.ecorr(z))
-
-#        # Fit polynomial to median K(z) for good fits
-#        nk = t['PCOEFF_R'].shape[1]
-#        good = np.isfinite(kc) * (t['CHI2'] < chi2max)
-#        zbin = np.linspace(self.zlimits[0], self.zlimits[1], 50) - self.kz0
-#        k_array = np.polynomial.polynomial.polyval(
-#            zbin, t['PCOEFF_R'][good].transpose())
-#        k_median = np.median(k_array, axis=0)
-#        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
-#
-#        # Set any missing or bad k-corrs to median values
-#        bad = np.logical_not(good)
-#        nbad = len(z[bad])
-#        if nbad > 0:
-#            kc[bad] = np.polynomial.polynomial.polyval(
-#                z[bad] - self.kz0, self.kmean)
-#            self.t['PCOEFF_R'][bad] = self.kmean
-#            print(nbad, 'missing/bad k-corrections replaced with mean')
 
         # Completeness weight
         imcomp = np.interp(t['R_SB'], sb_tab, comp_tab)
@@ -480,15 +444,18 @@ class GalSample():
 
     def read_grouped(self, galfile=g3cgal, grpfile=g3cfof,
                      kref=0.1, mass_est='lum', nmin=5,
-                     edge_min=0.9, masscomp=False):
+                     edge_min=0.9, masscomp=False, find_vis_groups=False):
         """Read grouped gama, mock or simulated catalogues.
         Set mass_est='true' for true mock halo masses."""
 
 #       See Robotham+2011 Sec 2.2 for k- and e- corrections
-        if 'mock' or 'sim' in grpfile:
+        if 'mock' in grpfile or 'Mock' in grpfile or 'sim' in grpfile:
             kz0 = 0.2
             self.kmean = mock_pcoeff
             self.kcorr = Kcorr(kz0, mock_pcoeff)
+            obs = False
+        else:
+            obs = True
 
         # Read and select groups
         grp = Table.read(grpfile)
@@ -502,7 +469,7 @@ class GalSample():
             key = 'HaloID'
         else:
             if mass_est == 'lum':
-                grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumBfunc']) - 11.5)
+                grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumB']) - 11.5)
             if mass_est == 'dyn':
                 grp['log_mass'] = np.log10(grp['MassAfunc'])
             key = 'GroupID'
@@ -537,15 +504,19 @@ class GalSample():
         if grpfile == g3cmockfof:
             gal.rename_column('RankIterCenF', 'RankIterCen')
 
-        if 'mock' in grpfile or 'Mock' in grpfile or 'sim' in grpfile:
-            gal['PCOEFF_R'] = np.tile(mock_pcoeff, (len(gal), 1))
-        else:
+        if obs:
             kcfile = kctemp.format(int(10*kref))
             kc_table = Table.read(kcfile)
             kz0 = kc_table.meta['Z0']
             self.kcorr = Kcorr(kz0)
             gal = join(gal, kc_table, keys='CATAID',
                        metadata_conflicts=metadata_conflicts)
+            tc = Table.read(tcfile)
+            tc = tc['CATAID', 'R_SB', 'FIBERMAG_R']
+            gal = join(gal, tc, keys='CATAID',
+                       metadata_conflicts=metadata_conflicts)
+        else:
+            gal['PCOEFF_R'] = np.tile(mock_pcoeff, (len(gal), 1))
 
         g = join(grp, gal, metadata_conflicts=metadata_conflicts)  # keys=key
         g['r_petro'] = [Magnitude(g['Rpetro'][i], g['z'][i], g['PCOEFF_R'][i],
@@ -555,10 +526,16 @@ class GalSample():
         if grpfile == g3cfof:
             self.stellar_mass()
             self.add_sersic_index()
+
+        # First determine luminosity-based zhi, needed for group zhi
+        self.vis_calc((self.sel_mag_lo, self.sel_mag_hi))
+        self.t['zhi_lum'] = self.t['zhi']
         if masscomp:
-            self.vis_calc((self.sel_mass_hi, self.sel_mass_lo))
-        else:
-            self.vis_calc((self.sel_mag_lo, self.sel_mag_hi))
+            self.masscomp = masscomp
+            self.mass_limit_sel()
+            self.comp_limit_mass()
+            self.vis_calc((self.sel_mass_hi, self.sel_mass_lo,
+                           self.sel_mag_lo, self.sel_mag_hi))
         if 'mock' in grpfile or 'Mock' in grpfile or 'sim' in grpfile:
             self.t['jack'] = self.t['Volume']
         else:
@@ -566,15 +543,16 @@ class GalSample():
             self.kcorr_fix('PCOEFF_R')
 
         # Store array of masses of groups in which each galaxy would be visible
-        ngal = len(self.t)
-        group_masses = []
-        grp_z = grp['IterCenZ']
-        for igal in range(ngal):
-            sel = (self.t['zlo'][igal] <= grp_z) * (grp_z < self.t['zhi'][igal])
-            if 'mock' in grpfile or 'sim' in grpfile:
-                sel *= self.t['Volume'][igal] == grp['Volume']
-            group_masses.append(grp['log_mass'][sel])
-        self.t['group_masses'] = group_masses
+        if find_vis_groups:
+            ngal = len(self.t)
+            group_masses = []
+            grp_z = grp['IterCenZ']
+            for igal in range(ngal):
+                sel = (self.t['zlo'][igal] <= grp_z) * (grp_z < self.t['zhi'][igal])
+                if 'mock' in grpfile or 'sim' in grpfile:
+                    sel *= self.t['Volume'][igal] == grp['Volume']
+                group_masses.append(grp['log_mass'][sel])
+            self.t['group_masses'] = group_masses
 
         # Calculate redshift limits
         # Group redshift limits correspond to that of nmin'th brightest galaxy
@@ -593,15 +571,25 @@ class GalSample():
             galid = gg['GalID'][ilo:ihi][idxsort][idx]
             grp['GalID'][igrp] = galid
             grp['Rpetro'][igrp] = gg['Rpetro'][ilo:ihi][idxsort][idx]
-            grp['zhi'][igrp] = gg['zhi'][ilo:ihi][idxsort][idx]
+            grp['zhi'][igrp] = gg['zhi_lum'][ilo:ihi][idxsort][idx]
             for igal in range(ihi-ilo):
                 gg['zhi'][ilo:ihi][igal] = min(
                         gg['zhi'][ilo:ihi][igal], grp['zhi'][igrp])
 
-        # Copy required columns to new table
-        self.t = gg
-        self.t['cweight'] = np.ones(len(self.t))
+        # Select only galaxies where zhi > zmin to avoid Vmax=0
+        # This will mess up group indices, so redefine them
+        sel = gg['zhi'] > self.zlimits[0]
+        self.t = gg[sel]
+        self.t = self.t.group_by(key)
         self.grp = grp
+
+        # Completeness weight
+        if obs:
+            imcomp = np.interp(self.t['R_SB'], sb_tab, comp_tab)
+            zcomp = z_comp(self.t['FIBERMAG_R'])
+            self.t['cweight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
+        else:
+            self.t['cweight'] = np.ones(len(self.t))
 
     def read_groups(self, grpfile=g3cfof, mass_est='lum', nmin=5, edge_min=0.9):
         """Read gama, mock or simulated catalogue group centres.
@@ -624,7 +612,7 @@ class GalSample():
             grp['Nfof'] = grp['Nhalo']
         else:
             if mass_est == 'lum':
-                grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumBfunc']) - 11.5)
+                grp['log_mass'] = 13.98 + 1.16*(np.log10(grp['LumB']) - 11.5)
             if mass_est == 'dyn':
                 grp['log_mass'] = np.log10(grp['MassAfunc'])
 
@@ -657,7 +645,7 @@ class GalSample():
 
         # Read and select groups meeting selection criteria
         t = Table.read(g3cfof)
-        t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+        t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumB']) - 11.5)
         sel = (np.array(t['GroupEdge'] > edge_min) *
                np.logical_not(t['log_mass'].mask) *
                np.array(t['Nfof'] >= nmin) *
@@ -751,7 +739,7 @@ class GalSample():
         else:
             t = Table.read(g3cmockfof)
             if mass_est == 'lum':
-                t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+                t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumB']) - 11.5)
             if mass_est == 'dyn':
                 t['log_mass'] = np.log10(t['MassAfunc'])
             key = 'GroupID'
@@ -903,57 +891,57 @@ class GalSample():
         except AttributeError:
             return self.t
 
-    def vis_calc_gama(self):
-        """Add redshift visibility limits for GAMA.
-        This no longer works, use vis_calc() instead."""
+    # def vis_calc_gama(self):
+    #     """Add redshift visibility limits for GAMA.
+    #     This no longer works, use vis_calc() instead."""
 
-        self.t['zlo'] = [self.zdm(self.mlimits[0] - self.t['ABSMAG_R'][i],
-                         self.t['PCOEFF_R'][i])
-                         for i in range(len(self.t))]
-        self.t['zhi'] = [self.zdm(self.mlimits[1] - self.t['ABSMAG_R'][i],
-                         self.t['PCOEFF_R'][i])
-                         for i in range(len(self.t))]
+    #     self.t['zlo'] = [self.zdm(self.mlimits[0] - self.t['ABSMAG_R'][i],
+    #                      self.t['PCOEFF_R'][i])
+    #                      for i in range(len(self.t))]
+    #     self.t['zhi'] = [self.zdm(self.mlimits[1] - self.t['ABSMAG_R'][i],
+    #                      self.t['PCOEFF_R'][i])
+    #                      for i in range(len(self.t))]
 
-    def vis_calc_old(self, conditions):
-        """Add redshift visibility limits for sample defined by conditions."""
+    # def vis_calc_old(self, conditions):
+    #     """Add redshift visibility limits for sample defined by conditions."""
 
-        def z_lower(cond, igal):
-            """Lower redshift limit from given condition."""
-            z = self.t[igal]['z']
-            zmin = self.zlimits[0]
-            if (cond(zmin, igal) > 0):
-                zlo = zmin
-            else:
-                try:
-                    zlo = scipy.optimize.brentq(
-                            cond, zmin, z,
-                            args=igal, xtol=1e-5, rtol=1e-5)
-                except ValueError:
-                    zlo = z
-            return zlo
+    #     def z_lower(cond, igal):
+    #         """Lower redshift limit from given condition."""
+    #         z = self.t[igal]['z']
+    #         zmin = self.zlimits[0]
+    #         if (cond(zmin, igal) > 0):
+    #             zlo = zmin
+    #         else:
+    #             try:
+    #                 zlo = scipy.optimize.brentq(
+    #                         cond, zmin, z,
+    #                         args=igal, xtol=1e-5, rtol=1e-5)
+    #             except ValueError:
+    #                 zlo = z
+    #         return zlo
 
-        def z_upper(cond, igal):
-            """Upper redshift limit from given condition."""
-            z = self.t[igal]['z']
-            zmax = self.zlimits[1]
-            if (cond(zmax, igal) > 0):
-                zhi = zmax
-            else:
-                try:
-                    zhi = scipy.optimize.brentq(
-                            cond, z, zmax,
-                            args=igal, xtol=1e-5, rtol=1e-5)
-                except ValueError:
-                    zhi = z
-            return zhi
+    #     def z_upper(cond, igal):
+    #         """Upper redshift limit from given condition."""
+    #         z = self.t[igal]['z']
+    #         zmax = self.zlimits[1]
+    #         if (cond(zmax, igal) > 0):
+    #             zhi = zmax
+    #         else:
+    #             try:
+    #                 zhi = scipy.optimize.brentq(
+    #                         cond, z, zmax,
+    #                         args=igal, xtol=1e-5, rtol=1e-5)
+    #             except ValueError:
+    #                 zhi = z
+    #         return zhi
 
-        self.t['zlo'] = np.zeros(len(self.t))
-        self.t['zhi'] = np.zeros(len(self.t))
-        for igal in range(len(self.t)):
-            zlo = [z_lower(cond, igal) for cond in conditions]
-            zhi = [z_upper(cond, igal) for cond in conditions]
-            self.t['zlo'][igal] = max(zlo)
-            self.t['zhi'][igal] = min(zhi)
+    #     self.t['zlo'] = np.zeros(len(self.t))
+    #     self.t['zhi'] = np.zeros(len(self.t))
+    #     for igal in range(len(self.t)):
+    #         zlo = [z_lower(cond, igal) for cond in conditions]
+    #         zhi = [z_upper(cond, igal) for cond in conditions]
+    #         self.t['zlo'][igal] = max(zlo)
+    #         self.t['zhi'][igal] = min(zhi)
 
     def vis_calc(self, conditions):
         """Add redshift visibility limits for sample defined by conditions."""
@@ -1032,7 +1020,7 @@ class GalSample():
 
         zlo = np.clip(self.t['zlo'], *self.zlimits)
         zhi = np.clip(self.t['zhi'], *self.zlimits)
-#        pdb.set_trace()
+        # pdb.set_trace()
         self.t['Vmax_raw'] = np.interp(zhi, zbins, afac*Vmax_raw)
         self.t['Vmax_ec'] = np.interp(zhi, zbins, afac*Vmax_ec)
         if denfile:
@@ -1050,9 +1038,9 @@ class GalSample():
 
         t = Table.read(grpfile)
         if mass_est == 'lum':
-            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumB']) - 11.5)
         if mass_est == 'dyn':
-            t['log_mass'] = np.log10(t['MassAfunc'])
+            t['log_mass'] = np.log10(t['MassA'])
         sel = (np.array(t['GroupEdge'] > edge_min) *
                np.logical_not(t['log_mass'].mask) *
                np.array(t['Nfof'] >= nmin))
@@ -1075,9 +1063,9 @@ class GalSample():
 
         t = Table.read(grpfile)
         if mass_est == 'lum':
-            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumBfunc']) - 11.5)
+            t['log_mass'] = 13.98 + 1.16*(np.log10(t['LumB']) - 11.5)
         if mass_est == 'dyn':
-            t['log_mass'] = np.log10(t['MassAfunc'])
+            t['log_mass'] = np.log10(t['MassA'])
         if mass_est == 'sim':
             sel = np.array(t['Nfof'] >= nmin)
         else:
@@ -1212,9 +1200,9 @@ class GalSample():
         OIII Balmer decrement from Lamastra+2009 eqn (1).
         Luminosities in units of 10^18 W to avoid overflow errors."""
 
-        m = Table.read(os.environ['GAMA_DATA'] + 'StellarMassesv19.fits')
+        m = Table.read(gama_data + 'StellarMassesv19.fits')
         m = m['CATAID', 'Z_TONRY', 'absmag_g', 'absmag_r']
-        t = Table.read(os.environ['GAMA_DATA'] + 'SpecLineSFR/' + infile)
+        t = Table.read(gama_data + 'SpecLineSFR/' + infile)
         s = join(t, m, keys='CATAID', metadata_conflicts=metadata_conflicts)
 
         # Select reference sample
@@ -1316,9 +1304,91 @@ class GalSample():
         plt.scatter(z[show], s['sfr'][show], s=0.01, c=clr[show],
                     edgecolors='face')
         plt.axis([0, 0.35, 5e-3, 500])
-        plt.xlabel(r'$z$l')
+        plt.xlabel(r'$z$')
         plt.ylabel(r'SFR')
-        plt.semilogy(basey=10, nonposy='clip')
+        plt.semilogy(base=10, nonpositive='clip')
+        plt.show()
+
+    def agn_class(self, snt=3):
+        """Classify AGN a la Gordon+2017 sec 3.1."""
+
+        gfs_file = gama_data + 'SpecLineSFR/GaussFitSimplev05.fits'
+        gfc_file = gama_data + 'SpecLineSFR/GaussFitComplexv05.fits'
+
+        # m = Table.read(gama_data + 'StellarMassesv19.fits')
+        # m = m['CATAID', 'Z_TONRY', 'absmag_g', 'absmag_r']
+        ss = Table.read(gfs_file)
+        ss = ss['SPECID', 'CATAID', 'Z', 'SURVEY_CODE', 'IS_BEST']
+        # s = join(t, m, keys='CATAID', metadata_conflicts=metadata_conflicts)
+
+        # Select best GAMA + SDSS spectra within acceptable redshift limits
+        z = ss['Z']
+        sc = ss['SURVEY_CODE']
+        idx = (ss['IS_BEST'] * ((sc == 1) + (sc == 5)) * (z < 0.3) *
+               ((z < 0.157) + (z > 0.163)) * ((z < 0.170) + (z > 0.175)))
+        ss = ss[idx]
+        nref = len(ss)
+        print(nref, 'selected spectra')
+
+        sc = Table.read(gfc_file)
+        s = join(ss, sc, keys='SPECID', metadata_conflicts=metadata_conflicts)
+        s['agn_type'] = 0
+        
+        # Type 1
+        sel = ((s['HA_MODSEL_EMB_EM'] > 200) * (s['HB_MODSEL_EMB_EM'] > 200) *
+               (s['HA_B_FLUX'] > s['HA_FLUX']) *
+               (s['HB_B_FLUX'] > s['HB_FLUX']) *
+               (s['HA_B_FLUX']/s['HB_B_FLUX'] < 5) *
+               (s['HA_B_FLUX']/s['HA_B_FLUX_ERR'] > snt) *
+               (s['HB_B_FLUX']/s['HB_B_FLUX_ERR'] > snt) *
+               (s['HA_B_NPEG'] == 0) * (s['HB_B_NPEG'] == 0))
+        s['agn_type'][sel] = 1
+        n1 = len(s[sel])
+        print(n1, 'type 1 AGN')
+        
+        # Type 1.5 (intermediate)
+        sel = ((s['agn_type'] < 1) * (s['HA_MODSEL_EMB_EM'] > 200) *
+               (s['HA_B_FLUX']/s['HA_B_FLUX_ERR'] > snt) *
+               (s['HA_B_NPEG'] == 0) * (s['OIIIR_EW'] > 3))
+        s['agn_type'][sel] = 1.5
+        n1 = len(s[sel])
+        print(n1, 'type 1.5 AGN')
+        
+        # Type 2
+        ha_ew = s['HA_EW']
+        hb_ew = s['HB_EW']
+        oiii_ew = s['OIIIR_EW']
+        ha = s['HA_FLUX'] * (1 + 2.5/ha_ew)
+        ha_err = s['HA_FLUX_ERR'] * (1 + 2.5/ha_ew)
+        hb = s['HB_FLUX'] * (1 + 2.5/hb_ew)
+        hb_err = s['HB_FLUX_ERR'] * (1 + 2.5/hb_ew)
+        nii = s['NIIR_FLUX']
+        nii_err = s['NIIR_FLUX_ERR']
+        oiii = s['OIIIR_FLUX']
+        oiii_err = s['OIIIR_FLUX_ERR']
+
+        good_ha = (s['HA_NPEG'] == 0) * (ha/ha_err > snt)
+        good_nii = (s['NIIR_NPEG'] == 0) * (nii/nii_err > snt)
+        good_hb = (s['HB_NPEG'] == 0) * (hb/hb_err > snt)
+        good_oiii = (s['OIIIR_NPEG'] == 0) * (oiii/oiii_err > snt)
+        good_na = good_ha * good_nii
+        good_ob = good_oiii * good_hb
+        na = np.log10(nii/ha)
+        ob = np.log10(oiii/hb)
+        print(len(s[good_ha]), 'galaxies with good Halpha')
+        print(len(s[good_na * good_ob]), 'galaxies with good BPT lines')
+
+        sel = ((s['agn_type'] < 1) * (good_na * good_ob) *
+               (ob > 0.61/(na - 0.47) + 1.19) * (ob > math.log10(3)))
+        s['agn_type'][sel] = 2
+        n1 = len(s[sel])
+        print(n1, 'type 2 AGN')
+        
+        plt.clf()
+        plt.scatter(na[good_na * good_ob], ob[good_na * good_ob], s=0.01)
+        plt.axis([-2, 1, -1.2, 1.5])
+        plt.xlabel(r'log([NII]/H$\alpha$)')
+        plt.ylabel(r'log([OIII]/H$\beta$)')
         plt.show()
 
     def add_vmax(self, vmfile=gama_data+'Vmax_dmu/v02/Vmax_v02.fits'):
@@ -1402,11 +1472,8 @@ class GalSample():
         print('Mag completeness limits:', self.comp_min, self.comp_max)
 
     def comp_limit_mass(self):
-        """Mass completeness at given redshift.  Uses results from
-        group_lf.gal_mass_z"""
-        p = [1.17442222,  29.68880365, -22.58489171]
-        a = 1/(1 + self.zlimits[0])
-        self.comp_min = np.polynomial.polynomial.polyval(a, p)
+        """Mass completeness at minimum redshift."""
+        self.comp_min = self.mass_limit(self.zlimits[0])
         self.comp_max = 99
         print('Mass completeness limit:', self.comp_min)
 
@@ -1587,11 +1654,25 @@ class GalSample():
     # simple mass limits
     def sel_mass_lo(self, z, igal):
         """mass > mass_lim."""
-        return self.t['logmstar'][igal] - mass_limit(z)
+        return self.t['logmstar'][igal] - self.mass_limit(z)
 
     def sel_mass_hi(self, z, igal):
         """No upper limit, always return 1"""
         return 1
+
+    def mass_limit(self, z):
+        """Mass completeness at given redshift.  Uses results from
+        group_lf.gal_mass_z"""
+        p = {'gama': [1.17442222,  29.68880365, -22.58489171],
+             'sim': [0.95474723,  33.0666522,  -26.39728058]}[self.masscomp]
+        a = 1/(1 + z)
+        return np.polynomial.polynomial.polyval(a, p)
+
+    def mass_limit_sel(self):
+        """Apply stellar mass completeness limit."""
+        Mt = self.mass_limit(self.t['z'])
+        sel = self.t['logmstar'] > Mt
+        self.t = self.t[sel]
 
 
 # GAMA selection limits
@@ -1605,12 +1686,11 @@ def sel_gama_mag_hi(z, galdat):
     return 19.8 - galdat['r_petro'].app_calc(z)
 
 
-def mass_limit(z):
-    """Mass completeness at given redshift.  Uses results from
-    group_lf.gal_mass_z"""
-    p = [1.17442222,  29.68880365, -22.58489171]
-    a = 1/(1 + z)
-    return np.polynomial.polynomial.polyval(a, p)
+def z_comp(r_fibre):
+    """Sigmoid function fit to redshift succcess given r_fibre,
+    from misc.zcomp."""
+    p = (22.42, 2.55, 2.24)
+    return (1.0/(1 + np.exp(p[1]*(r_fibre-p[0]))))**p[2]
 
 # Selection limits for LOWZ
 def sel_lowz_mag_lo(z, galdat):
