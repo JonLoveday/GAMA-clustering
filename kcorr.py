@@ -118,6 +118,6 @@ def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
             color = next(ax._get_lines.prop_cycler)['color']
             plt.scatter(redshifts, kz[:, iband], s=1, color=color)
             plt.plot(redshifts, fit, '-', color=color)
-    outtbl = Table([k, pcoeffs], names=('K-correction', 'pcoeffs'))
+    outtbl = Table([intbl['RAcen'], intbl['Deccen'], redshift, k, pcoeffs], names=('RA', 'DEC', 'z', 'Kcorr', 'pcoeffs'))
     outtbl.write(outfile, overwrite=True)
     plt.show()
