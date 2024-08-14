@@ -124,19 +124,24 @@ def gkv(infile='/Users/loveday/Data/gama/DR4/gkvScienceCatv02.fits',
     # CiC LF
     sel = (Mbins[0] <= mabs) * (mabs < Mbins[-1])
     mabs, wt = mabs[sel], wt[sel]
-    hist = np.zeros(nbins)
+    hist, phi = np.zeros(nbins), np.zeros(nbins)
     pf = (mabs-Mbins[0])/bin_width - 0.5
     p = np.floor(pf).astype(int)
     ok = (p >= 0) * (p < nbins-1)
     pstar = pf[ok] - p[ok]
-    np.add.at(hist, p[ok], (1-pstar)*wt[ok])
-    np.add.at(hist, p[ok]+1, pstar*wt[ok])
+    np.add.at(hist, p[ok], (1-pstar))
+    np.add.at(hist, p[ok]+1, pstar)
+    np.add.at(phi, p[ok], (1-pstar)*wt[ok])
+    np.add.at(phi, p[ok]+1, pstar*wt[ok])
     first = (p < 0)
-    hist[0] += np.sum(wt[first])
+    hist[0] += len(wt[first])
+    phi[0] += np.sum(wt[first])
     last = (p >= nbins-1)
-    hist[nbins-1] += np.sum(wt[last])
-    axes[1].stairs(hist, Mbins)
+    hist[nbins-1] += len(wt[last])
+    phi[nbins-1] += np.sum(wt[last])
+    err = phi/hist**0.5
 
+    axes[1].errorbar(Mcen, phi, err)
     axes[1].semilogy()
     axes[1].set_xlabel('Mag')
     axes[0].set_ylabel('N')
