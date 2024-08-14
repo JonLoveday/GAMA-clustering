@@ -7,17 +7,15 @@
 # 1.0 21-may-13  Based on mlum.py and Shaun's rancat_jswml.f90
 # 1.1 08-aug-14  Much simplified by separating out evolution fitting and
 #                Vdc_max calculation from LF fitting
-# 1.2 13-aug-24  Converted to python3 using 2to3
-
 
 import contextlib
 import os
 import matplotlib
 from matplotlib.ticker import MaxNLocator
-if not('DISPLAY' in os.environ):
+if not(os.environ.has_key('DISPLAY')):
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import AxesGrid
+from mpl_toolkits.axes_grid import AxesGrid
 import itertools
 import lum
 import math
@@ -190,7 +188,7 @@ def ev_sim_par(inroot='sim_z01_{}.fits', outroot='lf_kde_z01_{}_{}.dat'):
     infile = inroot.format(i)
     for method in ('lfchi', 'post'):
         outfile = outroot.format(method, i)
-        print(infile, method)
+        print infile, method
         lf_PQ(inFile=infile, outFile=outfile,
               param_list=(('r_petro',
                            (10, 19.8), (10, 19.8, 29), (-23, -15, 32), 0),),
@@ -250,7 +248,7 @@ def Vmax_sim(inroot='sim_z01_{}.fits', evroot='lf_kde_z01_{}_{}.dat',
              outroot='Vmax_{}_{}.fits'):
     """Vmax for simulations."""
     for method in ('post', 'lfchi'):
-        for i in range(10):
+        for i in xrange(10):
             infile = inroot.format(i)
             evfile = evroot.format(method, i)
             outfile = outroot.format(method, i)
@@ -292,7 +290,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
     ev_model = 'z'
     hdulist.close()
 
-    print('P, Q, nz, zmin, zmax =', P, Q, nz, zmin, zmax)
+    print 'P, Q, nz, zmin, zmax =', P, Q, nz, zmin, zmax
 
     par.update({'infile': infile, 'param': param, 'zmin': zmin, 'zmax': zmax,
                 'mlims': mlims, 'dmlim': 2, 'Mmin': -99, 'Mmax': 99, 'Mbin': 1,
@@ -339,7 +337,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
     ax.text(0.1, 0.1, 'DC', transform=ax.transAxes)
     ax.set_ylabel('Vmax/V')
     odd = samp.Vmax_dc/V_dc < 1
-    print((samp.Vmax_dc/V_dc)[odd])
+    print (samp.Vmax_dc/V_dc)[odd]
 #    pdb.set_trace()
 
     ax = axes[3]
@@ -354,7 +352,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def lf1(infile='Vmax_lfchi_c.fits', outroot='lf_{}_wt{}.dat',
@@ -478,7 +476,7 @@ def lf_sim(inroot='Vmax_{}_{}.fits', outroot='lf_bin_{}_{}.fits',
            param='r_petro', Mmin=-24, Mmax=-12, nbin=48):
     """Petrosian r-band LF for simulations."""
     for method in ('post', 'lfchi'):
-        for i in range(10):
+        for i in xrange(10):
             infile = inroot.format(method, i)
             outfile = outroot.format(method, i)
             lf_1d(infile, outfile, param, Mmin, Mmax, nbin)
@@ -562,9 +560,9 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
                 'Mmin': Mmin, 'Mmax': Mmax, 'Mbin': Mbin,
                 'idebug': idebug, 'method': method, 'lf_est': lf_est})
 
-    print('\n************************\njswml.py version ', par['version'])
-    print(method)
-    print(sel_dict)
+    print '\n************************\njswml.py version ', par['version']
+    print method
+    print sel_dict
     assert method in methods
     lf_bins = np.linspace(Mmin, Mmax, Mbin+1)
 
@@ -574,7 +572,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
     out = {'par': par}
 
     if par['idebug'] > 0:
-        print('Q, P chi^2 grid using', method)
+        print 'Q, P chi^2 grid using', method
 
     # Calculate chi^2 on (P,Q) grid to get likelihood contours and to find
     # starting point for minimization
@@ -594,7 +592,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
         chi2grid = np.array(pmap.parallel_map(lambda Q: [costfn((P, Q)) 
                                                          for P in Pa], Qa))
     else:
-        chi2grid = np.array([[costfn((P, Q)) for P in Pa] for Q in Qa])
+        chi2grid = np.array(map(lambda Q: [costfn((P, Q)) for P in Pa], Qa))
 
     
     extent = (Pmin, Pmax, Qmin, Qmax)
@@ -613,7 +611,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
 
     if opt:
         if par['idebug'] > 0:
-            print('Simplex optimization ...')
+            print 'Simplex optimization ...'
         # Use simplex method to optimize ev parameters (P,Q)
         res = scipy.optimize.fmin(costfn, (P_maxl, Q_maxl), xtol=0.1, ftol=0.1, 
                                   full_output=True)
@@ -664,7 +662,7 @@ def Vmax_out(infile, evfile, outfile, param='r_petro',
     except:
         ev_model = 'z'
 
-    print('P, Q, nz, zmin, zmax =', P, Q, nz, zmin, zmax)
+    print 'P, Q, nz, zmin, zmax =', P, Q, nz, zmin, zmax
 
     par.update({'infile': infile, 'param': param, 'zmin': zmin, 'zmax': zmax,
                 'mlims': mlims, 'dmlim': 2, 'Mmin': -99, 'Mmax': 99, 'Mbin': 1,
@@ -699,7 +697,7 @@ def Vmax_out(infile, evfile, outfile, param='r_petro',
     header['P'] = (P, 'Density evolution')
     header['zmin'] = zmin
     header['zmax'] = zmax
-    for ik in range(5):
+    for ik in xrange(5):
         header['kc_{}'.format(ik)] = (samp.kmean[ik],
                                       'Mean kcorr coeff {}'.format(ik))
 
@@ -733,8 +731,8 @@ def lf_1d(infile, outfile, param, Mmin=-24, Mmax=-12, nbin=48, dmlim=2,
     out = {'infile': infile, 'param': param, 'Mmin': Mmin, 'Mmax': Mmax,
            'nbin': nbin, 'Vmax_type': Vmax_type, 'lf_est': lf_est}
 
-    print('\n************************\njswml.py version ', par['version'])
-    print(sel_dict)
+    print '\n************************\njswml.py version ', par['version']
+    print sel_dict
 
     gala = read_vmax(infile, sel_dict, param, Vmax_type, Q=Q)
     lf_bins = np.linspace(Mmin, Mmax, nbin+1)
@@ -742,14 +740,14 @@ def lf_1d(infile, outfile, param, Mmin=-24, Mmax=-12, nbin=48, dmlim=2,
     # Find completeness limits in magnitude (Loveday+2012 sec 3.3)
     Mbright = par['mlims'][0] - dmodk(par['zmax'], par['kc_mean'], par['Q'])
     Mfaint = par['mlims'][1] - dmodk(par['zmin'], par['kc_mean'], par['Q'])
-    print('Mag completeness limits:', Mbright, Mfaint)
+    print 'Mag completeness limits:', Mbright, Mfaint
 
     if param in ('logmstar', 'logmstar_fluxscale'):
         # 95 percentile completeness in stellar mass
         pfit = mass_comp_pfit[par['colour']]
         Mmin = np.polyval(pfit, par['zmin'])
         comp = (lf_bins[:-1] > Mmin)
-        print('mass completeness limit:', Mmin)
+        print 'mass completeness limit:', Mmin
         out['Mmin'] = Mmin
     else:
         comp = (lf_bins[1:] < Mfaint) * (lf_bins[:-1] > Mbright)
@@ -815,14 +813,14 @@ def lfnd(inFile, outFile, param_list, zmin=0.002, zmax=0.65, nz=65,
     par['mu_min'] = -99
     par['mu_max'] = 99
             
-    print('\n************************\njswml.py version ', par['version'])
-    print(param_list, sel_dict)
+    print '\n************************\njswml.py version ', par['version']
+    print param_list, sel_dict
 
     samp = read_gama(inFile, param_list)
     qty = samp.qty_list[0]
     lf_bins = np.linspace(qty.absMin, qty.absMax, qty.nabs+1)
     Q = qty.Q
-    print('Q =', Q)
+    print 'Q =', Q
     out = {'par': par, 'qty_list': samp.qty_list}
 
     gala = samp.calc_limits()
@@ -931,8 +929,8 @@ def ran_gen(gala, outfile, nfac, Q=Qdef, P=Pdef, vol=0):
     zmin = par['zmin']
     zmax = par['zmax']
 
-    print(par)
-    print(sel_dict)
+    print par
+    print sel_dict
 
 #    f = open(evfile, 'r')
 #    dat = pickle.load(f)
@@ -963,20 +961,20 @@ def ran_gen(gala, outfile, nfac, Q=Qdef, P=Pdef, vol=0):
             'ngal': ngal, 'nran': nran,'sel_dict': sel_dict, 
             'galhist': list(galhist), 'zbins': list(zbins), 'zcen': list(zcen)})
     fout = open(outfile, 'w')
-    print(info, file=fout)
-    for i in range(ngal):
+    print >> fout, info
+    for i in xrange(ngal):
         if vol:
             z = util.ran_fun(vol_ev, zmin, zmax, ndupe[i])
         else:
             # Avoid tail of randoms beyond highest z galaxy
             # zhi = min(zmaxg, gala['zhi'][i])
             z = util.ran_fun(vol_ev, gala['zlo'][i], gala['zhi'][i], ndupe[i])
-        for j in range(len(z)):
-            print(z[j], V_max[i], gala['weight'][i], file=fout)
+        for j in xrange(len(z)):
+            print >> fout, z[j], V_max[i], gala['weight'][i]
             jz = int((z[j] - zmin)/zstep)
             ranhist[jz] += 1
     fout.close()
-    print(nran, ' redshifts output')
+    print nran, ' redshifts output'
 
     plt.clf()
     plt.step(zcen, galhist, where='mid')
@@ -1004,14 +1002,13 @@ def vol_limit(Mmin, Mmax, zmin, zmax, infile='kcorrz01.fits', Q=0):
     z = samp.gal_arr['z']
     M = samp.gal_arr['absval_sel']
     idx = (zmin < z) * (z < zmax)
-    print(('{:d} galaxies in redshift range'.format(len(z[idx]))))
+    print('{:d} galaxies in redshift range'.format(len(z[idx])))
     idx = (zmin < z) * (z < zmax) * (Mmin < M) * (M < Mmax)
-    print(('{:d} galaxies in vol limit'.format(len(z[idx]))))
+    print('{:d} galaxies in vol limit'.format(len(z[idx])))
 
 
-def z_binning(gala, nz, xxx_todo_changeme2):
+def z_binning(gala, nz, (zmin, zmax)):
     """Redshift binning and histogram"""
-    (zmin, zmax) = xxx_todo_changeme2
     zhist, bin_edges = np.histogram(gala['z'], nz, (zmin, zmax), 
                                     weights=gala['weight'])
     zstep = bin_edges[1] - bin_edges[0]
@@ -1029,7 +1026,7 @@ def vis_calc(gala, nz, zmin, zstep, V, V_int):
     S_obs = np.zeros((nz, ngal))
     S_vis = np.zeros((nz, ngal))
 
-    for igal in range(ngal):
+    for igal in xrange(ngal):
         ilo = min(nz-1, int((gala['zlo'][igal] - zmin) / zstep))
         ihi = min(nz-1, int((gala['zhi'][igal] - zmin) / zstep))
         iob = min(nz-1, int((gala['z'][igal] - zmin) / zstep))
@@ -1044,10 +1041,10 @@ def vis_calc(gala, nz, zmin, zstep, V, V_int):
         S_vis[ihi, igal] = Vp/V[ihi]
     return S_obs, S_vis
 
-def delta_solve(P, Q, gala, nz, xxx_todo_changeme3, zbin, zhist, V, V_int, S, 
+def delta_solve(P, Q, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S, 
                 nitermax=50, delta_tol=1e-4):
     """Solve for overdensity delta for given P, Q."""
-    (zmin, zmax) = xxx_todo_changeme3
+
     converged = False
     niter = 0
     Npred = np.zeros(nz)
@@ -1055,13 +1052,13 @@ def delta_solve(P, Q, gala, nz, xxx_todo_changeme3, zbin, zhist, V, V_int, S,
     Pz = den_evol(zbin, P)
     # pdb.set_trace()
     if par['idebug'] > 1:
-        print('iteration  max(delta Delta)')
+        print 'iteration  max(delta Delta)'
     while (not(converged) and niter < nitermax):
         # Density-corrected Vmax estimates for each galaxy
         Vdc_max = np.dot(delta_old * Pz * V, S)
             
         # Predicted mean galaxy number per redshift bin
-        for iz in range(nz):
+        for iz in xrange(nz):
             Npred[iz] = (Pz[iz] * V[iz] * S[iz,:] * gala['weight'] / Vdc_max).sum()
 
         # Overdensity = weighted sum of galaxies in bin / predicted
@@ -1072,7 +1069,7 @@ def delta_solve(P, Q, gala, nz, xxx_todo_changeme3, zbin, zhist, V, V_int, S,
         # Check for convergance
         delta_err = np.max(np.absolute(delta - delta_old))
         if par['idebug'] > 1:
-            print(niter, delta_err)
+            print niter, delta_err
         delta_old = delta
         if delta_err < delta_tol:
             converged = True
@@ -1094,7 +1091,7 @@ def delta_P_solve(Q, gala, zbin, zhist, V, V_int, S, P_prior, nitermax=50,
     Npred = np.zeros(nz)
     delta = np.ones(nz)
     if par['idebug'] > 1:
-        print('iteration  Q   P    mu    max delta change')
+        print 'iteration  Q   P    mu    max delta change'
     while (not(converged) and niter < nitermax):
         P_old = P
         mu_old = mu
@@ -1113,7 +1110,7 @@ def delta_P_solve(Q, gala, zbin, zhist, V, V_int, S, P_prior, nitermax=50,
             mu = 0.0
 
         # Predicted mean galaxy number and variance per redshift bin
-        for iz in range(nz):
+        for iz in xrange(nz):
             Npred[iz] = (Pz[iz] * V[iz] * S[iz,:] * gala['weight'] / 
                          (Vdc_max + mu*V_max)).sum()
         den_var = (1 + J3*Npred/V) / Npred
@@ -1132,7 +1129,7 @@ def delta_P_solve(Q, gala, zbin, zhist, V, V_int, S, P_prior, nitermax=50,
         P_err = abs(P - P_old)
         delta_err = np.max(np.absolute(delta - delta_old))
         if par['idebug'] > 1:
-            print(niter, Q, P, mu, delta_err)
+            print niter, Q, P, mu, delta_err
         if P_err < P_tol and delta_err < delta_tol:
             converged = True
         niter += 1
@@ -1208,9 +1205,8 @@ def lfnd(gala, V_max_corr, lf_bins, lf_range, absStep):
 class Cost(object):
     """Cost function and associated parameters."""
 
-    def __init__(self, samp, nz, xxx_todo_changeme, lf_bins, lf_zbins, 
+    def __init__(self, samp, nz, (zmin, zmax), lf_bins, lf_zbins, 
                  method, P_prior, Q_prior, Qmin, Qmax, err_type='jack'):
-        (zmin, zmax) = xxx_todo_changeme
         self.samp = samp
         self.nz = nz
         self.zmin = zmin
@@ -1233,7 +1229,7 @@ class Cost(object):
 
         # Mag bin limits for LF
         if par['idebug'] > 0:
-            print('Setting LF bin limits Qmin, Qmax = ', Qmin, Qmax)
+            print 'Setting LF bin limits Qmin, Qmax = ', Qmin, Qmax
         if self.method == 'post':
             self.binidx = np.ones(len(self.lf_bins) - 1, dtype=bool)
         if self.method == 'lfchi':
@@ -1241,14 +1237,14 @@ class Cost(object):
                                   dtype=bool)
             zstep = (zmax - zmin)/nz
             if par['idebug'] > 0:
-                print('zlo, zhi, Mmin, Mmax, nbins')
+                print 'zlo, zhi, Mmin, Mmax, nbins'
         for Q in (Qmin, Qmax):
             gala = samp.calc_limits(Q)
             if self.method == 'post':
                 Mhist, edges = np.histogram(gala['absval_lf'], lf_bins)
                 self.binidx *= (Mhist > 0)
                 if par['idebug'] > 0 and Q == self.Qmax:
-                    print('Non-zero LF bins: ', Mhist[self.binidx])
+                    print 'Non-zero LF bins: ', Mhist[self.binidx]
 
             if self.method == 'lfchi':
                 for iz in range(len(lf_zbins)):
@@ -1262,12 +1258,12 @@ class Cost(object):
                     Mhi = edges[1:]
                     self.binidx[iz, :] *= (Mhi < Mmax) * (Mlo > Mmin) * (Mhist > 9)
                     if par['idebug'] > 0 and Q == self.Qmax:
-                        print(zlo, zhi, Mmax, len(Mhist[self.binidx[iz, :]]))
+                        print zlo, zhi, Mmax, len(Mhist[self.binidx[iz, :]])
 
-    def __call__(self, xxx_todo_changeme1):
+    def __call__(self, (P, Q)):
         """Returns cost for evolution parameters (P, Q).  
         If P is None then solve for P."""
-        (P, Q) = xxx_todo_changeme1
+
         if Q != self.Q:
             self.Q = Q
             self.gala = self.samp.calc_limits(Q)
@@ -1360,8 +1356,8 @@ class Cost(object):
             phisum = np.sum(self.whist*np.log(self.phi))
 
             sum1 = np.zeros((len(self.gala), len(Pz)))
-            for igal in range(len(self.gala)):
-                for iz in range(len(Pz)):
+            for igal in xrange(len(self.gala)):
+                for iz in xrange(len(Pz)):
                     sum1[igal, iz] = (
                         self.lo_frac[igal, iz]*self.phi[self.lo_bin[igal, iz]] + 
                         self.phi[self.lo_bin[igal, iz]+1:self.hi_bin[igal, iz]-1].sum() +
@@ -1377,9 +1373,9 @@ class Cost(object):
             self.chisq = -2*lnL
             self.nu = len(self.gala) - 2
             if par['idebug'] > 0:
-                print('{:5.2f} {:5.2f} {:6d} {:e} {:e} {:e} {:e} {:6d} {:b} {:3d}'.format(
+                print '{:5.2f} {:5.2f} {:6d} {:e} {:e} {:e} {:e} {:6d} {:b} {:3d}'.format(
                     self.Q, self.P, len(self.gala), densum, phisum, xsum, lnL, 
-                    len(self.zhist[idx]), converged, niter))
+                    len(self.zhist[idx]), converged, niter)
                 # pdb.set_trace()
             if math.isnan(self.chisq):
                 self.chisq = 1e9
@@ -1389,9 +1385,9 @@ class Cost(object):
             self.chisq = ((self.delta-1)**2 / del_var).sum()
             self.nu = len(self.delta) - 2
             if par['idebug'] > 0:
-                print('{:5.2f} {:5.2f} {:6d} {:e} {:b} {:3d}'.format(
+                print '{:5.2f} {:5.2f} {:6d} {:e} {:b} {:3d}'.format(
                     self.Q, self.P, len(self.gala), self.chisq, 
-                    converged, niter))
+                    converged, niter)
             if not(converged):
                 self.chisq *= 10
             return self.chisq
@@ -1431,9 +1427,9 @@ class Cost(object):
             ax.text(0.1, 0.9, r'$\chi^2 = {:6.1f}$'.format(self.chisq),
                     transform = ax.transAxes)
             if par['idebug'] > 0:
-                print('{:5.2f} {:5.2f} {:6d} {:e} {:4d} {:b} {:3d}'.format(
+                print '{:5.2f} {:5.2f} {:6d} {:e} {:4d} {:b} {:3d}'.format(
                     self.Q, self.P, len(self.gala), self.chisq, self.nu, 
-                    converged, niter))
+                    converged, niter)
                 # pdb.set_trace()
             # if not(converged):
             #     self.chisq *= 10
@@ -1445,8 +1441,8 @@ class Cost(object):
                                               self.zbin, self.delta, p0=(0, 1),
                                               sigma = np.sqrt(del_var))
         if par['idebug'] > 0:
-            print('{:5.2f} {:5.2f} {:6d} {:e} {:b} {:3d}'.format(
-                    self.Q, self.P, len(self.gala), popt[0], converged, niter))
+            print '{:5.2f} {:5.2f} {:6d} {:e} {:b} {:3d}'.format(
+                    self.Q, self.P, len(self.gala), popt[0], converged, niter)
 
         if par['idebug'] > 1:
             ax = plt.subplot(2, 1, 1)
@@ -1476,7 +1472,7 @@ def M_binning(inFile, param_list, zmin=0.002, zmax=0.5, idebug=1,
         samp.qty_list[0].Q = Q
         samp.calc_limits()
         Mhist, bin_edges = np.histogram(samp.absval[:,0], bins)
-        print('Q = ', Q, Mhist)
+        print 'Q = ', Q, Mhist
     
     
 def den_evol(z, P):
@@ -1511,7 +1507,7 @@ def read_gama(file, param_list):
         par['area'] *= (math.pi/180.0)*(math.pi/180.0)
     cosmo = util.CosmoLookup(par['H0'], par['omega_l'], (zmin, zmax))
 
-    print('H0, omega_l, z0, area/Sr = ', par['H0'], par['omega_l'], par['z0'], par['area'])
+    print 'H0, omega_l, z0, area/Sr = ', par['H0'], par['omega_l'], par['z0'], par['area']
 
     # Read simulation parameters if present
     try:
@@ -1521,29 +1517,29 @@ def read_gama(file, param_list):
         par['sim_par'] = None
         
     qty_list = []
-    for i in range(len(param_list)):
+    for i in xrange(len(param_list)):
         qty_list.append(Qty(param_list[i]))
         
     samp = Sample(samp_type, qty_list)
     samp.read(hdulist[1].data)
     napp = samp.ngal
-    print(napp, 'objects satisfy apparent limits')
+    print napp, 'objects satisfy apparent limits'
 
     # Select objects with good redshifts
     if samp_type == 'gama':
         idx = samp.gal_arr['q'] > 2
         samp = samp.subset(idx)
         nz = len(samp.gal_arr)
-        print('{} objects ({:4.1f}%) with reliable redshifts'.format(
-            nz, 100.0*nz/napp))
-        print('mean weight = ', np.mean(samp.gal_arr['weight']))
+        print '{} objects ({:4.1f}%) with reliable redshifts'.format(
+            nz, 100.0*nz/napp)
+        print 'mean weight = ', np.mean(samp.gal_arr['weight'])
     
     # Apply redshift limits
     idx = (zmin <= samp.gal_arr['z']) * (samp.gal_arr['z'] < zmax)
     samp = samp.subset(idx)
     ngal = len(samp.gal_arr)
     par['ngal'] = ngal
-    print(ngal, 'objects selected')
+    print ngal, 'objects selected'
     samp.ngal = ngal
         
     hdulist.close()
@@ -1582,13 +1578,13 @@ class Sample(object):
         cosmo = util.CosmoLookup(par['H0'], par['omega_l'], (zmin, zmax))
         self.par = par
         self.cosmo = cosmo
-        print(('H0, omega_l, z0, area/Sr = ',
-              par['H0'], par['omega_l'], par['z0'], par['area']))
+        print('H0, omega_l, z0, area/Sr = ',
+              par['H0'], par['omega_l'], par['z0'], par['area'])
 
         try:
             alpha = header['alpha']
             sim = True
-            print('Simulated data')
+            print 'Simulated data'
         except:
             sim = False
 
@@ -1605,8 +1601,8 @@ class Sample(object):
                    (tbdata['z_tonry'] < zmax))
 
         # Apply other selection limits in sel_dict
-        for key, limits in sel_dict.items():
-            print(key, limits)
+        for key, limits in sel_dict.iteritems():
+            print key, limits
             sel *= ((tbdata[key] >= limits[0]) *
                     (tbdata[key] < limits[1]))
             par[key] = limits
@@ -1619,7 +1615,7 @@ class Sample(object):
                     (np.fabs(tbdata['r_petro'] - tbdata['r_sersic']) <
                     par['dmlim']))
             nclean = len(tbdata[sel])
-            print(nclean, 'out of', ncand, 'targets with clean photometry')
+            print nclean, 'out of', ncand, 'targets with clean photometry'
 
         tbdata = tbdata[sel]
         ngal = len(tbdata)
@@ -1677,10 +1673,10 @@ class Sample(object):
             gal_arr['kc'][bad] = np.polynomial.polynomial.polyval(
                 z[bad] - par['z0'], self.kmean)
             gal_arr['kcoeff'][bad] = self.kmean
-            print(nbad, 'missing/bad k-corrections replaced with mean')
+            print nbad, 'missing/bad k-corrections replaced with mean'
             f = open('bad_kcorr.txt', 'w')
-            for ibad in range(nbad):
-                print(gal_arr['cataid'][bad][ibad], file=f)
+            for ibad in xrange(nbad):
+                print >> f, gal_arr['cataid'][bad][ibad]
             f.close()
 
         gal_arr['absval_sel'] = (gal_arr['appval_sel'] - cosmo.dist_mod(z) -
@@ -1692,7 +1688,7 @@ class Sample(object):
         self.tbdata = tbdata
         self.gal_arr = gal_arr
         self.ngal = ngal
-        print(ngal, 'galaxies selected')
+        print ngal, 'galaxies selected'
 
         # Completeness weight
         # sb = (tbdata[('r_petro') + 2.5*lg2pi +
@@ -1701,13 +1697,13 @@ class Sample(object):
             sb = tbdata['r_sb']
             imcomp = np.interp(sb, sb_tab, comp_tab)
         except:
-            print('No column r_sb; ignoring SB completeness')
+            print 'No column r_sb; ignoring SB completeness'
             imcomp = np.ones(ngal)
         try:
             r_fibre = tbdata['fibermag_r']
             zcomp = z_comp(r_fibre)
         except:
-            print('No column fibermag_r; ignoring redshift completeness')
+            print 'No column fibermag_r; ignoring redshift completeness'
             zcomp = np.ones(ngal)
         self.gal_arr['weight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
 
@@ -1735,10 +1731,14 @@ class Sample(object):
         self.gal_arr['absval_lf'] = (self.gal_arr['appval_lf'] -
                                      cosmo.dist_mod(z) - kc + ecorr(z, Q))
         if vis:
-            self.gal_arr['zlo'] = [zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i],
-                              kcoeff[i], (zmin, zmax), Q) for i in range(ngal)]
-            self.gal_arr['zhi'] = [zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i],
-                              kcoeff[i], (zmin, zmax), Q) for i in range(ngal)]
+            self.gal_arr['zlo'] = map(
+                lambda i: zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q),
+                xrange(ngal))
+            self.gal_arr['zhi'] = map(
+                lambda i: zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q),
+                xrange(ngal))
 
         # Galaxies within absolute limits
         absm = self.gal_arr['absval_lf']
@@ -1746,7 +1746,7 @@ class Sample(object):
 
         gala = self.gal_arr[sel]
         if par['idebug'] > 1:
-            print(len(gala), 'galaxies satisfy absolute limits')
+            print len(gala), 'galaxies satisfy absolute limits'
         return gala
 
     def abs_bin(self, absval):
@@ -1754,7 +1754,7 @@ class Sample(object):
         absval = absMin + (iabs+frac)*absStep."""
         
         absval = np.clip(absval, self.Mmin, self.Mmax)
-        iabs = np.floor((absval - self.Mmin)/self.Mstep).astype(np.int32)
+	iabs = np.floor((absval - self.Mmin)/self.Mstep).astype(np.int32)
         iabs = np.clip(iabs, 0, self.Mbin - 1)
         frac = (absval - (self.Mmin + iabs*self.Mstep))/self.Mstep
         return iabs, frac
@@ -1855,7 +1855,7 @@ class Qty(object):
         absval = absMin + (iabs+frac)*absStep."""
         
         absval = np.clip(absval, self.absMin, self.absMax)
-        iabs = np.floor((absval - self.absMin)/self.absStep).astype(np.int32)
+	iabs = np.floor((absval - self.absMin)/self.absStep).astype(np.int32)
         iabs = np.clip(iabs, 0, self.nabs - 1)
         frac = (absval - (self.absMin + iabs*self.absStep))/self.absStep
         return iabs, frac
@@ -1866,7 +1866,7 @@ class Qty(object):
         appval = appMin + (iapp+frac)*appStep."""
         
         appval = np.clip(appval, self.appMin, self.appMax)
-        iapp = np.floor((appval - self.appMin)/self.appStep).astype(np.int32)
+	iapp = np.floor((appval - self.appMin)/self.appStep).astype(np.int32)
         iapp = np.clip(iapp, 0, self.napp - 1)
         frac = (appval - (self.appMin + iapp*self.appStep))/self.appStep
         return iapp, frac
@@ -1896,13 +1896,13 @@ def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
     par['zmin'] = header['zmin']
     par['zmax'] = header['zmax']
     par['kc_mean'] = np.zeros(5)
-    for ik in range(5):
+    for ik in xrange(5):
         par['kc_mean'][ik] = header['kc_{}'.format(ik)]
     cosmo = util.CosmoLookup(par['H0'], par['omega_l'],
                              (par['zmin'], par['zmax']))
-    print(('Q, H0, omega_l, z0, area/Sr, zmin, zmax = ',
+    print('Q, H0, omega_l, z0, area/Sr, zmin, zmax = ',
           par['Q'], par['H0'], par['omega_l'], par['z0'],
-          par['area'], par['zmin'], par['zmax']))
+          par['area'], par['zmin'], par['zmax'])
 
     if 'IREAL' in cols.names:
         mock = True
@@ -1923,8 +1923,8 @@ def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
                (tbdata['z_tonry'] < par['zmax']))
 
     # Apply other selection limits in sel_dict
-    for key, limits in sel_dict.items():
-        print(key, limits)
+    for key, limits in sel_dict.iteritems():
+        print key, limits
         sel *= ((tbdata.field(key) >= limits[0]) *
                 (tbdata.field(key) < limits[1]))
 #        par[key] = limits
@@ -1936,11 +1936,11 @@ def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
                 (np.fabs(tbdata.field('r_petro') -
                  tbdata.field('r_sersic')) < par['dmlim']))
         nclean = len(tbdata[sel])
-        print(nclean, 'out of', ncand, 'targets with clean photometry')
+        print nclean, 'out of', ncand, 'targets with clean photometry'
 
     tbdata = tbdata[sel]
     ngal = len(tbdata)
-    print(ngal, 'galaxies selected')
+    print ngal, 'galaxies selected'
 
     gal_arr = np.zeros(
         ngal,
@@ -1957,13 +1957,13 @@ def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
             sb = tbdata.field('r_sb')
             imcomp = np.interp(sb, sb_tab, comp_tab)
         except:
-            print('No column r_sb; ignoring SB completeness')
+            print 'No column r_sb; ignoring SB completeness'
             imcomp = np.ones(ngal)
         try:
             r_fibre = tbdata.field('fibermag_r')
             zcomp = z_comp(r_fibre)
         except:
-            print('No column fibermag_r; ignoring redshift completeness')
+            print 'No column fibermag_r; ignoring redshift completeness'
             zcomp = np.ones(ngal)
         gal_arr['weight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
     else:
@@ -2288,7 +2288,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
                (tbdata.field('z_tonry') >= zrange[0]) *
                (tbdata.field('z_tonry') < zrange[1]) *
                (tbdata.field('nQ') > 2) * (tbdata['chi2'] < chi2max))
-        for ic in range(5):
+        for ic in xrange(5):
             sel *= np.isfinite(tbdata.field('pcoeff_r')[:, ic])
         tbdata = tbdata[sel]
         nk = len(tbdata)
@@ -2303,7 +2303,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
         k_array = np.polynomial.polynomial.polyval(zbin, pc)
         kmin = np.min(k_array)
         kmax = np.max(k_array)
-        print('kmin, kmax =', kmin, kmax)
+        print 'kmin, kmax =', kmin, kmax
 #        pdb.set_trace()
         k_median = np.median(k_array, axis=0)
         pc_med = np.polynomial.polynomial.polyfit(zbin, k_median, pdim-1)
@@ -2332,14 +2332,14 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
         zlims = np.linspace(0.0, 0.65, 66)
         nz = len(zlims) - 1
         fout = open(schec_nz, 'w')
-        print('alpha {}, M* {}, phi* {}, Q {}, P {}'.format(
-                alpha, Mstar, phistar, Q, P), file=fout)
-        for i in range(nz):
+        print >> fout, 'alpha {}, M* {}, phi* {}, Q {}, P {}'.format(
+                alpha, Mstar, phistar, Q, P)
+        for i in xrange(nz):
             zlo = zlims[i]
             zhi = zlims[i+1]
             schec_num, err = scipy.integrate.quad(
                 gam_dv, zlo, zhi, epsabs=1e-3, epsrel=1e-3)
-            print(0.5*(zlo+zhi), schec_num, file=fout)
+            print >> fout, 0.5*(zlo+zhi), schec_num
         fout.close()
         return
 
@@ -2347,7 +2347,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     nsim, err = scipy.integrate.quad(gam_dv, zrange[0], zrange[1],
                                      epsabs=1e-3, epsrel=1e-3)
     nsim = int(nsim)
-    print('Simulating', nsim, 'galaxies')
+    print 'Simulating', nsim, 'galaxies'
     mapp_out = np.zeros(nsim)
     Mabs_out = np.zeros(nsim)
     z_out = np.zeros(nsim)
@@ -2373,7 +2373,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
         # K-corrections for remaining objects
         kidx = np.random.randint(0, nk, nsel)
         pc_ran = pc[kidx, :]
-        kc = np.array([kcorr(z[i], pc_ran[i, :]) for i in range(nsel)])
+        kc = np.array(map(lambda i: kcorr(z[i], pc_ran[i, :]), xrange(nsel)))
         mapp += kc
         ra = ra_gal[kidx]
         sel = (mapp >= mrange[0]) * (mapp < mrange[1])
@@ -2392,7 +2392,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
 
         nout += nsel
         nrem -= nsel
-        print(nrem)
+        print nrem
 
     # Randomly resample in redshift bins to induce density fluctuations
     zbins = np.linspace(zrange[0], zrange[1], nz+1)
@@ -2409,19 +2409,19 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     # pc_samp = []
     samp_list = []
     nsamp = 0
-    print('iz  delta  zhist  nsel')
-    for iz in range(nz):
+    print 'iz  delta  zhist  nsel'
+    for iz in xrange(nz):
         zlo = zbins[iz]
         zhi = zbins[iz+1]
         delta = np.random.normal(0.0, math.sqrt(J3/V[iz]))
         nsel = int(round((1+delta) * zhist[iz]))
         hist_gen[iz] = nsel
-        print(iz, delta, zhist[iz], nsel)
+        print iz, delta, zhist[iz], nsel
         if nsel > 0:
             sel = (zlo <= z_out) * (z_out < zhi)
             idx = np.where(sel)
             samp = np.random.randint(0, zhist[iz], nsel)
-            for i in range(nsel):
+            for i in xrange(nsel):
                 samp_list.append(idx[0][samp[i]])
                 # mapp_samp.append(mapp_out[idx][samp[i]])
                 # Mabs_samp.append(Mabs_out[idx][samp[i]])
@@ -2436,7 +2436,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     vis_class = np.zeros(nsamp)
     post_class = np.zeros(nsamp)
     A_r = np.zeros(nsamp)
-    print(nsamp, ' galaxies after resampling')
+    print nsamp, ' galaxies after resampling'
 
     # Assign surface brightness and fibre mag from fits to observed relations
     # (Loveday+ 2012, App A1)
@@ -2449,7 +2449,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     bad = (imcomp * zcomp < np.random.random(nsamp))
     nQ[bad] = 0
     nbad = len(nQ[bad])
-    print(nbad, 'out of', nsamp, 'redshifts marked as bad', float(nbad)/nsamp)
+    print nbad, 'out of', nsamp, 'redshifts marked as bad', float(nbad)/nsamp
 
     # Write out as FITS file
     cols = [fits.Column(name='r_petro', format='E', array=mapp),
@@ -2496,7 +2496,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
 
 def multisim(infile='kcorrz01.fits', outfile='sim_z01_{}.fits', do_kcorr=True):
     """Generate several simulated catalogues."""
-    for i in range(10):
+    for i in xrange(10):
         simcat(infile, outfile=outfile.format(i), do_kcorr=do_kcorr, 
                area_fac=1.0)
         
@@ -2515,7 +2515,7 @@ def sim_av(evroot='lf_kde_z01_{}_{}.dat', lfroot='lf_bin_{}_{}.fits',
         den_var = []
         phi = []
         phi_err = []
-        for i in range(nsim):
+        for i in xrange(nsim):
             infile = evroot.format(method, i+nlo)
             f = open(infile, 'r')
             dat = pickle.load(f)
@@ -2539,13 +2539,13 @@ def sim_av(evroot='lf_kde_z01_{}_{}.dat', lfroot='lf_bin_{}_{}.fits',
             phi.append(dat['phi'])
             phi_err.append(dat['phi_err'])
 
-        print(method)
-        print('  alpha {:6.2f} +/- {:6.2f}'.format(np.mean(alpha), np.std(alpha)))
-        print('     M* {:6.2f} +/- {:6.2f}'.format(np.mean(Mstar), np.std(Mstar)))
-        print('lg phi* {:6.2f} +/- {:6.2f}'.format(np.mean(lpstar), np.std(lpstar)))
-        print('      P {:6.2f} +/- {:6.2f}'.format(np.mean(P), np.std(P)))
-        print('      Q {:6.2f} +/- {:6.2f}'.format(np.mean(Q), np.std(Q)))
-        print('cov(Q,P) ', np.cov(Q, P))
+        print method
+        print '  alpha {:6.2f} +/- {:6.2f}'.format(np.mean(alpha), np.std(alpha))
+        print '     M* {:6.2f} +/- {:6.2f}'.format(np.mean(Mstar), np.std(Mstar))
+        print 'lg phi* {:6.2f} +/- {:6.2f}'.format(np.mean(lpstar), np.std(lpstar))
+        print '      P {:6.2f} +/- {:6.2f}'.format(np.mean(P), np.std(P))
+        print '      Q {:6.2f} +/- {:6.2f}'.format(np.mean(Q), np.std(Q))
+        print 'cov(Q,P) ', np.cov(Q, P)
         plt.clf()
         ax = plt.subplot(211)
         ax.errorbar(zbin, np.mean(delta, axis=0), np.std(delta, axis=0), fmt='none')
@@ -2630,14 +2630,14 @@ def reformat(infile='sim_noev_nok.fits', outfile='sim_noev_nok.txt'):
     hdulist.close()
 
     fout = open(outfile, 'w')
-    print('# Selection criteria:', file=fout)
-    print('# zmin=  0.002 zmax=  0.5', file=fout)
-    print('# faint maglimit= 19.8', file=fout)
-    print('# solid angle=  {}  Sr'.format(area), file=fout)
-    print('# Catalogue: ncat= {}'.format(ngal), file=fout)
-    print('#     mag     z      id', file=fout)
-    for i in range(ngal):
-        print(mag[i], z[i], i+1, file=fout)
+    print >> fout, '# Selection criteria:'
+    print >> fout, '# zmin=  0.002 zmax=  0.5'
+    print >> fout, '# faint maglimit= 19.8'
+    print >> fout, '# solid angle=  {}  Sr'.format(area)
+    print >> fout, '# Catalogue: ncat= {}'.format(ngal)
+    print >> fout, '#     mag     z      id'
+    for i in xrange(ngal):
+        print >> fout, mag[i], z[i], i+1
     fout.close()
 
 def plot_ascii():
@@ -2704,7 +2704,7 @@ def plot(infile='jswml.dat', Mlimits=(-11, -24), plot_file=None):
         step = dat['edges'][0][1] - dat['edges'][0][0]
         Mbin = dat['edges'][0][:-1] + 0.5*step
         absStep = 1.0
-        for i in range(ndim):
+        for i in xrange(ndim):
             absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
         phi = np.sum(dat['phi'], axis=tuple(range(1, ndim))) * absStep/step
         phi_err = (np.sum(dat['phi_err']**2, axis=tuple(range(1, ndim)))**0.5 * 
@@ -2755,7 +2755,7 @@ def plot_lfs(filelist=('lf_sersic_clean.dat', 'lf_sersic_noclean.dat'),
     symbols = itertools.cycle(sym_list)
     for fname in filelist:
         lf = pickle.load(open(fname, 'r'))
-        lf.update({'props': next(symbols), 'err_plot': 1, 'label': None,
+        lf.update({'props': symbols.next(), 'err_plot': 1, 'label': None,
                    'schec_plot': 0, 'schec_label': 0})
         panel.append(lf)
         panels = [panel, ]
@@ -2953,10 +2953,10 @@ def ev_table(evroot='ev_{}_petro_fit_{}.dat', outfile='ev_table.tex'):
             Qerr = 0.5*(Qvals[iqhi] - Qvals[iqlo])
             Perr = 0.5*(Pvals[iphi] - Pvals[iplo])
 
-            print(method, colour)
-            print('iqlo, iqhi, iplo, iphi', iqlo, iqhi, iplo, iphi)
-            print(Qvals[iqlo], Qvals[iqhi])
-            print(Pvals[iplo], Pvals[iphi])
+            print method, colour
+            print 'iqlo, iqhi, iplo, iphi', iqlo, iqhi, iplo, iphi
+            print Qvals[iqlo], Qvals[iqhi]
+            print Pvals[iplo], Pvals[iphi]
             # pdb.set_trace()
 
             # Spline fit to chi2 map to find error on P+Q
@@ -3103,7 +3103,7 @@ def plot_lf_z(lftemp='lf_r_{}_{}.dat', ztemp='lf_r_{}_{}_z_{}_{}.dat',
     lf_chi2 = 0
     nu = 0
     
-    for iz in range(len(zlims)-1):
+    for iz in xrange(len(zlims)-1):
         zlo = zlims[iz]
         zhi = zlims[iz+1]
         infile = ztemp.format(mag_type, colour, zlo, zhi)
@@ -3132,13 +3132,13 @@ def plot_lf_z(lftemp='lf_r_{}_{}.dat', ztemp='lf_r_{}_{}_z_{}_{}.dat',
     axes[1].set_ylabel(r'$\phi(M_z)/\phi(M_{\rm tot})$')
     axes[1].set_xlabel(plot_label(lf['param'])[1])
     plt.draw()
-    print('chi^2, nu =', lf_chi2, nu)
+    print 'chi^2, nu =', lf_chi2, nu
 
     if plot_file:
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
@@ -3154,7 +3154,7 @@ def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
     plt.subplots_adjust(hspace=0.0)
     zlist = []
     fitlist = []
-    for iz in range(len(zlims)-1):
+    for iz in xrange(len(zlims)-1):
         ax = axes[iz]
         zlo = zlims[iz]
         zhi = zlims[iz+1]
@@ -3188,18 +3188,18 @@ def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
     fig.set_size_inches(plot_size)
     plot_file = 'lf_zslices.pdf'
     plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-    print('plot saved to ', plot_dir + plot_file)
+    print 'plot saved to ', plot_dir + plot_file
 
     plt.clf()
     fig, axes = plt.subplots(2, sharex=True, num=1)
     plt.subplots_adjust(hspace=0.0)
     ax = axes[0]
-    ax.errorbar(zlist, [fitlist[iz][2] for iz in range(6)],
-                np.array([fitlist[iz][3] for iz in range(6)]).T)
+    ax.errorbar(zlist, [fitlist[iz][2] for iz in xrange(6)],
+                np.array([fitlist[iz][3] for iz in xrange(6)]).T)
     ax.set_ylabel(r'$M^*$')
     ax = axes[1]
-    ax.errorbar(zlist, [fitlist[iz][4] for iz in range(6)],
-                np.array([fitlist[iz][5] for iz in range(6)]).T)
+    ax.errorbar(zlist, [fitlist[iz][4] for iz in xrange(6)],
+                np.array([fitlist[iz][5] for iz in xrange(6)]).T)
     ax.set_ylabel(r'$\log \phi^*$')
     ax.set_xlabel('Redshift')
     plt.draw()
@@ -3207,7 +3207,7 @@ def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
     fig.set_size_inches(plot_size)
     plot_file = 'lf_ztrends.pdf'
     plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-    print('plot saved to ', plot_dir + plot_file)
+    print 'plot saved to ', plot_dir + plot_file
 
 
 def plot_smf_z(reftemp='smf_{}.dat', filetemp='smf_{}_{}_{}.dat',
@@ -3224,10 +3224,10 @@ def plot_smf_z(reftemp='smf_{}.dat', filetemp='smf_{}_{}_{}.dat',
     fig, axes = plt.subplots(2, 3, sharex=True, num=1)
     plt.subplots_adjust(hspace=0.0, wspace=0.0)
 
-    for ic in range(3):
+    for ic in xrange(3):
         colour = 'cbr'[ic]
         clabel = ('All', 'Blue', 'Red')[ic]
-        print(clabel)
+        print clabel
         reffile = reftemp.format(colour)
         lf = pickle.load(open(reffile, 'r'))
 
@@ -3239,7 +3239,7 @@ def plot_smf_z(reftemp='smf_{}.dat', filetemp='smf_{}_{}_{}.dat',
 
 #        axes[0, ic].errorbar(lf['Mbin'], lf['phi'], lf['phi_err'],
 #                             fmt='s', color='k')
-        for iz in range(len(zlims)-1):
+        for iz in xrange(len(zlims)-1):
             zlo = zlims[iz]
             zhi = zlims[iz+1]
             infile = filetemp.format(colour, zlo, zhi)
@@ -3284,7 +3284,7 @@ def plot_smf_z(reftemp='smf_{}.dat', filetemp='smf_{}_{}_{}.dat',
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def plot1d_old(panels, xlimits=(-24, -12), ylimits=(2e-7, 1), 
@@ -3331,8 +3331,8 @@ def plot1d_old(panels, xlimits=(-24, -12), ylimits=(2e-7, 1),
             f = open(infile, 'r')
             dat = pickle.load(f)
             f.close()
-            sym = next(symbols)
-            clr = next(colours)
+            sym = symbols.next()
+            clr = colours.next()
             cmp = dat['comp']
             if llabels:
                 llabel = llabels[i]
@@ -3464,10 +3464,10 @@ def plotnd(param_list, schec_guess=None, plot_lab=None, plot_file=None):
         ndim = len(dat['phi'].shape)
         if ndim > 1:
             absStep = 1.0
-            for i in range(ndim):
+            for i in xrange(ndim):
                 absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
             bincorr = absStep/qtyi.absStep
-            sumdims = list(range(ndim))
+            sumdims = range(ndim)
             sumdims.remove(iq)
             sumdims = tuple(sumdims)
             phi = np.sum(dat['phi'], axis=sumdims) * bincorr
@@ -3536,7 +3536,7 @@ def delta_plot_colour(template='ev_lfchi_petro_fit_{}.dat',
 def delta_plot_sim(template='lf_kde_z01_lfchi_{}.dat',
                    plot_file='delta_sim.pdf'):
     param_list = []
-    for isim in range(10):
+    for isim in xrange(10):
         param_list.append((template.format(isim), ' '))
     delta_plot(param_list, plot_file)
 
@@ -3674,7 +3674,7 @@ def gridplot(panels, clevels=[1, 4, 9], colours='kbr',
             Qstep = float(dat['Qbins'][1] - dat['Qbins'][0])/dat['Qbins'][2]
             extent = (dat['Pbins'][0], dat['Pbins'][1], 
                       dat['Qbins'][0], dat['Qbins'][1])
-            print('extent', extent)
+            print 'extent', extent
             if greyscale:
                 cmap = matplotlib.cm.Greys
                 im = ax.imshow(dat['chi2grid'], cmap=cmap, aspect='auto', 
@@ -3688,7 +3688,7 @@ def gridplot(panels, clevels=[1, 4, 9], colours='kbr',
             lines.append(cs.collections[0])
             labels.append(label)
             ax.plot(dat['P'], dat['Q'], 'o'+colour)
-            print(dat['P'], dat['Q'], dat['P_err'], dat['Q_err'])
+            print dat['P'], dat['Q'], dat['P_err'], dat['Q_err']
         if plot_limits:
             ax.axis(plot_limits)
         if plabel:
@@ -3709,11 +3709,11 @@ def gridplot(panels, clevels=[1, 4, 9], colours='kbr',
         else:
             fig.set_size_inches(5, 5)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def gridplot_av(filenames=('lf_kde_z01_post_{}.dat', 'lf_kde_z01_lfchi_{}.dat'),
-                sims=range(10), label=('Mean prob', 'LF-redshift'),
+                sims=xrange(10), label=('Mean prob', 'LF-redshift'),
                 plot_file='sim_ev_contours.pdf'):
     """Average of multiple chi-squared grids."""
     nsim = len(sims)
@@ -3721,11 +3721,11 @@ def gridplot_av(filenames=('lf_kde_z01_post_{}.dat', 'lf_kde_z01_lfchi_{}.dat'),
     Q = np.zeros(nsim)
     plt.clf()
     nplot = len(filenames)
-    for iplot in range(nplot):
+    for iplot in xrange(nplot):
         ax = plt.subplot(nplot+1, 1, iplot+1)
         first = True
 
-        for i in range(nsim):
+        for i in xrange(nsim):
             infile = filenames[iplot].format(sims[i])
             f = open(infile, 'r')
             dat = pickle.load(f)
@@ -3763,8 +3763,8 @@ def gridplot_av(filenames=('lf_kde_z01_post_{}.dat', 'lf_kde_z01_lfchi_{}.dat'),
         ax.errorbar(P.mean(), Q.mean(), xerr=P.std(), yerr=Q.std())
         ax.text(0.7, 0.9, label[iplot], transform=ax.transAxes)
         ax.set_ylabel(r'$Q_e\ ({\rm mag})$')
-        print('min chi^2 (P,Q) = ({} +- {}, {} +- {})'.format(
-            P.mean(), P.std(), Q.mean(), Q.std()))
+        print 'min chi^2 (P,Q) = ({} +- {}, {} +- {})'.format(
+            P.mean(), P.std(), Q.mean(), Q.std())
     ax.set_xlabel(r'$P_e$')
     plt.subplots_adjust(hspace=0.0)
     plt.draw()
@@ -3773,7 +3773,7 @@ def gridplot_av(filenames=('lf_kde_z01_post_{}.dat', 'lf_kde_z01_lfchi_{}.dat'),
         fig = plt.gcf()
         fig.set_size_inches(5, 10)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def gridplot_mocks(template=('ev_{:02d}.dat',),
@@ -3804,13 +3804,13 @@ def ev_lin_fit(infile, nfit=2, plot=False):
     Qerr_fit = []
     chi2min = []
     dchi2 = 1
-    for ip in range(nP):
+    for ip in xrange(nP):
         P = Pmin + (ip+0.5)*Pstep
         chi2vals = chi2grid[:,ip]
         iq = np.argmin(chi2vals)
         # Fit quadratic to chi2(Q) at (2*nfit + 1) bins around minimum 
         if iq > nfit-1 and iq < nQ - nfit:
-            bins = list(range(iq-nfit, iq+nfit+1))
+            bins = range(iq-nfit, iq+nfit+1)
             (a, b, c) = np.polyfit(bins, chi2vals[bins], 2)
             xmin = -b/(2*a)
             chi2min.append(np.interp(xmin, iqvals, chi2vals))
@@ -3823,7 +3823,7 @@ def ev_lin_fit(infile, nfit=2, plot=False):
             Qerr_fit.append(Qerr)
             # pdb.set_trace()
     (m, c) = np.polyfit(Pfit, Qfit, 1, w=1.0/(np.array(Qerr_fit)**2))
-    print('Q = {:5.2f} * P + {:5.2f}'.format(m,c))
+    print 'Q = {:5.2f} * P + {:5.2f}'.format(m,c)
 
     if plot:
         plt.clf()
@@ -3847,11 +3847,11 @@ def ev_lin_fit_sims(filetemp='lf_kde_z01_{}_{}.dat'):
     marr = np.zeros(10)
     carr = np.zeros(10)
     for method in ('post', 'lfchi'):
-        for i in range(10):
+        for i in xrange(10):
             marr[i], carr[i] = ev_lin_fit(filetemp.format(method, i))
-        print(method)
-        print('m = {:5.2f} +/- {:5.2f}, c = {:5.2f} +/- {:5.2f}'.format(
-            np.mean(marr), np.std(marr), np.mean(carr), np.std(carr)))
+        print method
+        print 'm = {:5.2f} +/- {:5.2f}, c = {:5.2f} +/- {:5.2f}'.format(
+            np.mean(marr), np.std(marr), np.mean(carr), np.std(carr))
 
 def likeplot(infile):
     """Plot 1d likelihood distribution."""
@@ -3874,7 +3874,7 @@ def likeplot_multi(filename='like_post_{}.dat', nsim=10):
     """Analysis of multiple 1d likelihood distributions."""
     P = np.zeros(nsim)
     Q = np.zeros(nsim)
-    for i in range(nsim):
+    for i in xrange(nsim):
         infile = filename.format(i)
         f = open(infile, 'r')
         (Qa, Pa, like_arr) = pickle.load(f)
@@ -3896,7 +3896,7 @@ def likeplot_multi(filename='like_post_{}.dat', nsim=10):
 
     likeav /= nsim
     Pav /= nsim
-    print('MaxL (P,Q) = ({} +- {}, {} +- {})'.format(P.mean(), P.std(), Q.mean(), Q.std()))
+    print 'MaxL (P,Q) = ({} +- {}, {} +- {})'.format(P.mean(), P.std(), Q.mean(), Q.std())
 
     plt.clf()
     ax = plt.subplot(2, 1, 1)
@@ -3919,7 +3919,7 @@ def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
     f.close()
 
     for qty in dat['qty_list']:
-        print(qty.name)
+        print qty.name
     par = dat['par']
     ndim = len(dat['phi'].shape)
     qtyi = dat['qty_list'][iq]
@@ -3935,12 +3935,12 @@ def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
                       qtyj.absMax - 0.5*qtyj.absStep,
                       qtyj.nabs)
     if ndim > 2:
-        print('raw phi_err range:', np.min(dat['phi_err']), np.max(dat['phi_err']))
+        print 'raw phi_err range:', np.min(dat['phi_err']), np.max(dat['phi_err'])
         absStep = 1.0
-        for i in range(ndim):
+        for i in xrange(ndim):
             absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
         bincorr = absStep/qtyi.absStep/qtyj.absStep
-        sumdims = list(range(ndim))
+        sumdims = range(ndim)
         sumdims.remove(iq)
         sumdims.remove(jq)
         sumdims = tuple(sumdims)
@@ -3970,8 +3970,8 @@ def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
                                  (par['zmin'], par['zmax']))
         zmin, zmax = par['zmin'], par['zmax']
         vol = np.zeros((qtyj.nabs, qtyi.nabs))
-        for j in range(qtyj.nabs):
-            for i in range(qtyi.nabs):
+        for j in xrange(qtyj.nabs):
+            for i in xrange(qtyi.nabs):
                 zloi = zdm(qtyi.appMin-vic[i], qtyi.kmean, (zmin, zmax), qtyi.Q)
                 zhii = zdm(qtyi.appMax-vic[i], qtyi.kmean, (zmin, zmax), qtyi.Q)
 
@@ -4008,7 +4008,7 @@ def plot2d(infile, iq=0, jq=1, ired=1, jred=1, ngmin=16, vol_contour=(1800,),
     global par, cosmo
 
     qtyi, qtyj, vic, vjc, Mhist, phi, phi_err, vol = phi2d(infile, iq, jq)
-    print('phi_err range:', np.min(phi_err), np.max(phi_err))
+    print 'phi_err range:', np.min(phi_err), np.max(phi_err)
     extent = (qtyi.absMin, qtyi.absMax, qtyj.absMin, qtyj.absMax)
     log_phi = np.log10(phi)
     log_phi = np.ma.array(log_phi, mask=np.isnan(log_phi))
@@ -4037,7 +4037,7 @@ def plot2d(infile, iq=0, jq=1, ired=1, jred=1, ngmin=16, vol_contour=(1800,),
                                   Mhist, ngmin)
         chol_arr = np.log10(choloniewski(M, mu, chol_par))
         v = np.linspace(vmin, vmax, int(2*(vmax - vmin)) + 1)
-        print('contours ', v)
+        print 'contours ', v
         plt.contour(chol_arr, v, aspect='auto', origin='lower', extent=extent)
 
         # If simulation parameters are given, plot as dashed contours
@@ -4050,7 +4050,7 @@ def plot2d(infile, iq=0, jq=1, ired=1, jred=1, ngmin=16, vol_contour=(1800,),
 
     plt.xlabel(plot_label(qtyi.name)[1])
     plt.ylabel(plot_label(qtyj.name)[1])
-    print('ylabel:', plot_label(qtyj.name)[1], qtyj.name)
+    print 'ylabel:', plot_label(qtyj.name)[1], qtyj.name
     plt.draw()
 
     if plot_file:
@@ -4219,16 +4219,16 @@ def plot_slices(param_list, ired=1, jred=1, p0=(0.5, 0.1, 0.01),
                      ha='center', va='center', rotation='vertical')
 
         iplot = 0
-        for i in range(qtyi.nabs):
+        for i in xrange(qtyi.nabs):
             if vali_min < vic[i] and vali_max > vic[i]:
                 ax = axes[iplot]
-                ax.errorbar(vjc, phi[:,i], phi_err[:,i], fmt=next(symbols),
+                ax.errorbar(vjc, phi[:,i], phi_err[:,i], fmt=symbols.next(),
                             color=clr)
                 # White out points outside Vmin contour or with too few galaxies
                 if vol is not None:
                     idx = (vol[:,i] < Vmin) + (Mhist[:,i] < ngmin)
                     ax.plot(vjc[idx], phi[idx,i], linestyle='None',
-                            marker=next(symbols), color='white')
+                            marker=symbols.next(), color='white')
 
                 # Fit Gaussian to rest
                 idx = (Mhist[:,i] >= ngmin)
@@ -4246,7 +4246,7 @@ def plot_slices(param_list, ired=1, jred=1, p0=(0.5, 0.1, 0.01),
                         sigma.append(popt[1])
                         mean_err.append(math.sqrt(pcov[0,0]))
                         sigma_err.append(math.sqrt(pcov[1,1]))
-                        print('{:6.2f} mu {:6.2f} +- {:6.2f}, sig {:6.2f} +- {:6.2f}, chi2 {:6.2f}, nu {:d}'.format(Mbin[-1], mean[-1], mean_err[-1], sigma[-1], sigma_err[-1], chi2, nu))
+                        print '{:6.2f} mu {:6.2f} +- {:6.2f}, sig {:6.2f} +- {:6.2f}, chi2 {:6.2f}, nu {:d}'.format(Mbin[-1], mean[-1], mean_err[-1], sigma[-1], sigma_err[-1], chi2, nu)
                
                 ax.axis(rangej + phi_range)
                 ax.semilogy(basey=10, nonposy='clip')
@@ -4279,12 +4279,12 @@ def plot_slices(param_list, ired=1, jred=1, p0=(0.5, 0.1, 0.01),
         infile = param_list[ifile][0]
         outfile = infile.replace('.dat', '_trends.dat')
         fout = open(outfile, 'w')
-        print(fp, file=fout)
+        print >> fout, fp
         fout.close()
         fp = list(fp)
         if offsets:
             fp[1] -= np.interp(fp[0], M, mu)
-        plt.errorbar(fp[0], fp[1], fp[2], fmt=next(symbols), 
+        plt.errorbar(fp[0], fp[1], fp[2], fmt=symbols.next(), 
                      color=colours[ifile]) # , markersize=8
         # plt.errorbar(fp[0], fp[1], fp[3], fmt='none')
         plt.fill_between(fp[0], np.array(fp[1]) - 0.5*np.array(fp[3]),
@@ -4312,30 +4312,30 @@ def gauss_fit(x, y, yerr, p0, plimits):
     nbin = len(x)
     nu = nbin - 3
     if nu < 0:
-        print('Not enough data points for Gaussian fit')
+        print 'Not enough data points for Gaussian fit'
         return None
     # Find maximum to get starting position and amplitude
     imax = np.argmax(y)
     p0[0] = x[imax]
     p0[2] = y[imax]
-    print(p0)
+    print p0
     
     try:
         # First do simplex fit, then leastsq fit to get covariance matrix
         res = scipy.optimize.fmin(
             gauss_chi2, p0, args=(plimits, x, y, yerr), ftol=0.001, full_output=1, disp=0)
-        print('fmin: ', res)
+        print 'fmin: ', res
         res = scipy.optimize.leastsq(gauss_resid, res[0], (x, y, yerr),
                                      xtol=0.001, ftol=0.001, full_output=1)
         popt, cov, info, mesg, ier = res
         if ier > 4:
-            print(mesg)
+            print mesg
         chi2 = (info['fvec']**2).sum()
         cov *= (chi2/nu)
     
         return popt, cov, chi2, nu
     except:
-        print('Failed to fit Gaussian')
+        print 'Failed to fit Gaussian'
         return None
     
 def gauss_chi2(gauss_par, plimits, x, y, yerr):
@@ -4409,7 +4409,7 @@ def chol_fit(M, mu, phi, phi_err, ngal, ngmin=5):
     nbin = len(M[sel])
     nu = nbin - 6
     dchisq = scipy.special.chdtri(nu, prob)
-    print(nu, dchisq)
+    print nu, dchisq
 
     p0 = (-1.2, -20.5, 0.01, 0.3, 20.0, 0.5)
 
@@ -4417,14 +4417,14 @@ def chol_fit(M, mu, phi, phi_err, ngal, ngmin=5):
                                                   phi[sel], phi_err[sel]),
                                  xtol=0.001, ftol=0.001, full_output=1)
     popt, cov, info, mesg, ier = res
-    print(mesg)
+    print mesg
     chi2 = (info['fvec']**2).sum()
     cov *= (chi2/nu)
 
-    for i in range(6):
-        print('{} = {:7.3f} +- {:7.3f}'.format(chol_par_name[i],
-                                               popt[i], math.sqrt(cov[i,i])))
-    print('chi2, nu: ', chi2, nu)
+    for i in xrange(6):
+        print '{} = {:7.3f} +- {:7.3f}'.format(chol_par_name[i],
+                                               popt[i], math.sqrt(cov[i,i]))
+    print 'chi2, nu: ', chi2, nu
 ##     print 'cov ', cov
     return popt, chi2
 
@@ -4480,7 +4480,7 @@ def Nz_plot_lum(inroot='ranz_lum_c_{}_{}.dat', plot_file=None,
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 def Nz_plot_lumV(inroot='ranz_lumV_{}_{}.dat'):
     """N(z) plots for vol-ltd lum-selected samples."""
@@ -4553,7 +4553,7 @@ def Nz_plot(param_list=(('All', (('ranz_colour_c.dat', 'k'),)),
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 
 def Nz_plot_schec(ranfile='ranz_colour_c.dat', schecfile='schec_nz.txt',
@@ -4581,7 +4581,7 @@ def Nz_plot_schec(ranfile='ranz_colour_c.dat', schecfile='schec_nz.txt',
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
 def Nz_plot_mock(inroot='ranz_{}_{}_{}.dat'):
     """N(z) plots for mock lum sub-samples."""
@@ -4634,10 +4634,10 @@ def weight_hist(infile='kcorrz01.fits', outfile='weights.fits', nbins=50,
     logweight = np.log10(1.0/(imcomp*zcomp))
     hdulist.close()
 
-    print('mean weight (pre-clipping)= ', np.mean(weight))
+    print 'mean weight (pre-clipping)= ', np.mean(weight)
     wgt = weight > wmax
-    print('{} out of {} galaxies ({}) have weight > {}'.format(
-        len(weight[wgt]), len(weight), float(len(weight[wgt]))/len(weight), wmax))
+    print '{} out of {} galaxies ({}) have weight > {}'.format(
+        len(weight[wgt]), len(weight), float(len(weight[wgt]))/len(weight), wmax)
     logwmax = math.log10(wmax)
     plt.clf()
 #    plt.subplot(131)
@@ -4665,17 +4665,17 @@ def weight_hist(infile='kcorrz01.fits', outfile='weights.fits', nbins=50,
 
     hiwt = weight > wmax
     f = open('high_weight.txt', 'w')
-    for i in range(len(weight[hiwt])):
-        print(cataid[hiwt][i], file=f)
+    for i in xrange(len(weight[hiwt])):
+        print >> f, cataid[hiwt][i]
     f.close()
 
     if plot_file:
         fig = plt.gcf()
         fig.set_size_inches(5, 3)
         plt.savefig(plot_dir + plot_file, bbox_inches='tight')
-        print('plot saved to ', plot_dir + plot_file)
+        print 'plot saved to ', plot_dir + plot_file
 
-    print('mean weight (post-clipping)= ', np.mean(np.clip(weight, 1, wmax)))
+    print 'mean weight (post-clipping)= ', np.mean(np.clip(weight, 1, wmax))
 
     # Output weights to a file
     if outfile:
@@ -4718,7 +4718,7 @@ def Baldry2011():
 
 def info(infile):
     """Print parameter info for specified file."""
-    print(pickle.load(open(infile, 'r'))['par'])
+    print pickle.load(open(infile, 'r'))['par']
 
 
 def tabulate(files, labels, outfile):
@@ -4726,8 +4726,8 @@ def tabulate(files, labels, outfile):
     f = open(outfile, 'w')
     for infile, label in zip(files, labels):
         dat = pickle.load(open(infile, 'r'))
-        print(label, file=f)
-        print('ngal    M     phi    Err', file=f)
+        print >> f, label
+        print >> f, 'ngal    M     phi    Err'
         cmp = dat['comp']
         for ibin in range(len(cmp)):
             ng = int(dat['Mhist'][ibin])
@@ -4735,8 +4735,8 @@ def tabulate(files, labels, outfile):
                 line = '{:4d} {:6.2f} {:4.2e} {:4.2e}'.format(
                     ng, dat['Mbin'][ibin], dat['phi'][ibin],
                     dat['phi_err'][ibin])
-                print(line, file=f)
-        print(file=f)
+                print >> f, line
+        print >> f
     f.close()
 
 
@@ -4765,7 +4765,7 @@ def tabulate_lfs_z_petro(ztemp='lf_r_{}_{}_z_{}_{}.dat', mag_type='petro',
     labeltemp = r'${} < z < {}$'
     files = []
     labels = []
-    for iz in range(len(zlims)-1):
+    for iz in xrange(len(zlims)-1):
         zlo = zlims[iz]
         zhi = zlims[iz+1]
         files.append(ztemp.format(mag_type, colour, zlo, zhi))
@@ -4781,7 +4781,7 @@ def tabulate_lfs_z_sersic(ztemp='lf_r_{}_z_{}_{}.dat', mag_type='sersic',
     labeltemp = r'${} < z < {}$'
     files = []
     labels = []
-    for iz in range(len(zlims)-1):
+    for iz in xrange(len(zlims)-1):
         zlo = zlims[iz]
         zhi = zlims[iz+1]
         files.append(ztemp.format(mag_type, zlo, zhi))

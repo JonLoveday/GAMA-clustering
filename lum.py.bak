@@ -22,8 +22,8 @@ if not('DISPLAY' in os.environ):
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-from mpl_toolkits.axes_grid1 import AxesGrid
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.axes_grid import AxesGrid
+from mpl_toolkits.axes_grid.inset_locator import inset_axes
 import scipy.integrate
 import scipy.optimize
 import time
@@ -303,7 +303,7 @@ def lfEv2(jack=0):
            zlims, absMinSTY, absMaxSTY, zRangeSTY, likeFile, jack=jack,
            colour=colour, schecInit=schec)
         
-def lfFaint(inFile='kcorrz.fits', absStep=0.25, bands=list(range(5)), colours='cbr',
+def lfFaint(inFile='kcorrz.fits', absStep=0.25, bands=range(5), colours='cbr',
             zmax=0.1, like=0, jack=0):
     """Standard Schechter fits at low redshifts"""
     likeFile = None
@@ -327,7 +327,7 @@ def lfFaint(inFile='kcorrz.fits', absStep=0.25, bands=list(range(5)), colours='c
                absMin, absMax, absStep, zlims, absMinSTY, absMaxSTY, zRangeSTY,
                likeFile, jack=jack, colour=colour, schecInit=schec)
         
-def lfSDSSFaint(inFile='kcorrz.fits', absStep=0.25, bands=list(range(5)),
+def lfSDSSFaint(inFile='kcorrz.fits', absStep=0.25, bands=range(5),
                 colours='cbr', like=0, jack=0):
     """Standard Schechter fits at low redshifts"""
     likeFile = None
@@ -615,8 +615,8 @@ def lf(inFile, outFile, iband, appMin, appMax, absMin, absMax, absStep,
     
     plot = plotWindow(2,2)
 
-    print('\n************************\nlum.py version ', par['version'])
-    print('Band ', par['band'], 'colour ', par['colour'], sel_dict)
+    print '\n************************\nlum.py version ', par['version']
+    print 'Band ', par['band'], 'colour ', par['colour'], sel_dict
         
     schec = schecInit.copy()
     fullSamp = readGama(inFile, zRange, colour)
@@ -641,9 +641,9 @@ def lf(inFile, outFile, iband, appMin, appMax, absMin, absMax, absStep,
         phiList.append(phi)
         
     f = open(outFile, 'w')
-    print(par, file=f)
-    print(schec, file=f)
-    print(lumdens, file=f)
+    print >> f, par
+    print >> f, schec
+    print >> f, lumdens
     for phi in phiList:
         phi.save(f)
     f.close()
@@ -652,7 +652,7 @@ def lf(inFile, outFile, iband, appMin, appMax, absMin, absMax, absStep,
     # Jacknife resampling
     if jack:
         for ijack in range(9):
-            print('Jacknife ', ijack)
+            print 'Jacknife ', ijack
             jackFile = outFile.split('.')[0] + '_j%d' % ijack + '.dat'
             schec = schecInit.copy()
             jackSamp = fullSamp.jacknife(ijack)
@@ -677,9 +677,9 @@ def lf(inFile, outFile, iband, appMin, appMax, absMin, absMax, absStep,
                 phiList.append(phi)
 
             f = open(jackFile, 'w')
-            print(par, file=f)
-            print(schec, file=f)
-            print(lumdens, file=f)
+            print >> f, par
+            print >> f, schec
+            print >> f, lumdens
             for phi in phiList:
                 phi.save(f)
             f.close()
@@ -710,7 +710,7 @@ def readGama(file, zRange, colour):
     par['area'] = header['AREA']
     par['area'] *= (math.pi/180.0)*(math.pi/180.0)
 
-    print('H0, omega_l, z0, area/Sr = ', par['H0'], par['omega_l'], par['z0'], par['area'])
+    print 'H0, omega_l, z0, area/Sr = ', par['H0'], par['omega_l'], par['z0'], par['area']
 
     # Look for any simulation parameters in header
     try:
@@ -753,8 +753,8 @@ def readGama(file, zRange, colour):
         else:
             idx *= (gr >= grcut)
 
-    for key, limits in sel_dict.items():
-        print(key, limits)
+    for key, limits in sel_dict.iteritems():
+        print key, limits
         idx *= (tbdata.field(key) >= limits[0])*(tbdata.field(key) < limits[1])
         par[key] = limits
             
@@ -792,12 +792,12 @@ def readGama(file, zRange, colour):
     if iband == 4: kcoeff = tbdata.field('kcoeffz')[idx,:]
     hdulist.close()
     ngal = z.size
-    print(ngal, ' galaxies selected')
+    print ngal, ' galaxies selected'
 
     # Check K(z) reconstruction
     zbin = np.linspace(zRange[0], zRange[1], 50)
     for igal in range(4):
-        print(kcoeff[igal,:])
+        print kcoeff[igal,:]
         kcz = np.polyval(kcoeff[igal], zbin-par['z0'])
         plot.window()
         plt.plot(zbin, kcz)
@@ -813,9 +813,9 @@ def readGama(file, zRange, colour):
     Mmax = np.clip(appMax - dm, absMin, absMax)
     
     r = cosmo.dm(z)
-    z1 = [zdm(appMin - absMag[i], kcoeff[i], zRange) for i in range(ngal)]
+    z1 = map(lambda i: zdm(appMin - absMag[i], kcoeff[i], zRange), xrange(ngal))
     r1 = cosmo.dm(z1)
-    z2 = [zdm(appMax - absMag[i], kcoeff[i], zRange) for i in range(ngal)]
+    z2 = map(lambda i: zdm(appMax - absMag[i], kcoeff[i], zRange), xrange(ngal))
     r2 = cosmo.dm(z2)
     vol = r*r*r - r1*r1*r1
     Vm = r2*r2*r2 - r1*r1*r1
@@ -828,9 +828,9 @@ def readGama(file, zRange, colour):
     plt.draw()
 
     idx = VVm < 0
-    print(len(VVm[idx]), ' galaxies with V/Vmax < 0')
+    print len(VVm[idx]), ' galaxies with V/Vmax < 0'
     idx = VVm > 1.01
-    print(len(VVm[idx]), ' galaxies with V/Vmax > 1.01')
+    print len(VVm[idx]), ' galaxies with V/Vmax > 1.01'
     
     fullSamp = Sample(zRange, par['area'], z, weight, absMag,
                       Mmin, Mmax, r1, r2, phiBin, kcoeff, ra)
@@ -846,12 +846,12 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
     or evolving is determined from the keys in the schec dictionary."""
     
 
-    print("Parametric fit...")
+    print "Parametric fit..."
     schec['zRangeSty'] = samp.zRange
     schec['ngal'] = samp.ngal
 
 ##     if not(schec.has_key('sigma')):
-    print("Loading Gamma fn lookup table...")
+    print "Loading Gamma fn lookup table..."
     gamTab = gammaLookup()
     
     # First we fit for shape and any luminosity evolution parameters
@@ -860,17 +860,17 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
     lower = [parLimits['alpha'][0], parLimits['Mstar'][0]]
     upper = [parLimits['alpha'][1], parLimits['Mstar'][1]]
     cons = [con_alo, con_ahi, con_mslo, con_mshi]
-    if 'sigma' in schec:
+    if schec.has_key('sigma'):
         x0 += [schec['sigma']]
         parSet += ['sigma']
         lower += [parLimits['sigma'][0]]
         upper += [parLimits['sigma'][1]]
-    if 'Q' in schec:
+    if schec.has_key('Q'):
         x0 += [schec['Q']]
         parSet += ['Q']
         lower += [parLimits['Q'][0]]
         upper += [parLimits['Q'][1]]
-    if 'beta' in schec:
+    if schec.has_key('beta'):
         x0 += [schec['beta'], schec['Mt']]
         parSet += ['beta', 'Mt']
         lower += [parLimits['beta'][0], parLimits['Mt'][0]]
@@ -879,7 +879,7 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
 
     schec['nShapePar'] = len(parSet)
 
-    print("Fitting ", parSet, x0)
+    print "Fitting ", parSet, x0
 
     # Call fmin repeatedly until value of minimum changes by less than 1e-6
     ftol = 1e-6
@@ -891,7 +891,7 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
             full_output=1)
         xopt = result[0]
         fopt = result[1]
-        print(xopt, fopt)
+        print xopt, fopt
         df = abs(fopt - fold)/fopt
         fold = fopt
         x0 = xopt
@@ -912,21 +912,21 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
     npar = len(parSet)
     if errorEst:
         for i in range(npar):
-            imarg = [j for j in range(npar) if j != i]
+            imarg = filter(lambda j: j != i, range(npar))
             parOrd = [parSet[j] for j in imarg] + [parSet[i]]
             schec[parSet[i]] = (xopt[i], likeErr(
                 lambda marg, x, parOrd, gamTab, samp:
                 parLike(np.hstack((marg, x)), parOrd, gamTab, samp),
                 xopt[i], cons, limits=parLimits[parSet[i]],
                 marg=(xopt[imarg]), args=(parOrd, gamTab, samp)))
-            print(parSet[i], schec[parSet[i]])
+            print parSet[i], schec[parSet[i]]
     else:
         for i in range(npar):
             schec[parSet[i]] = (xopt[i], [0, 0])
          
-    if 'P' in schec:        
+    if schec.has_key('P'):        
         # Now fit for density evolution P
-        print("Fitting P ...")
+        print "Fitting P ..."
         ev = Evol(schec['Q'][0])
         if par['idebug'] > 1:
             dz = (samp.zRange[1] - samp.zRange[0])/100
@@ -938,10 +938,10 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
 
         # Redshift limits for each galaxy
         Mevol = samp.absMag + ev.lum(samp.z)
-        z1 = [zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
-                               samp.zRange, ev) for i in range(samp.ngal)]
-        z2 = [zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
-                               samp.zRange, ev) for i in range(samp.ngal)]
+        z1 = map(lambda i: zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
+                               samp.zRange, ev), xrange(samp.ngal))
+        z2 = map(lambda i: zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
+                               samp.zRange, ev), xrange(samp.ngal))
 
         x0 = [schec['P']]
         xopt = scipy.optimize.fmin(rhoLike, x0, (samp, z1, z2),
@@ -964,14 +964,14 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
                                     rhoLike((P0, P1), samp, z1, z2),
                                     P[1], marg=(P[0]), args=(samp, z1, z2)))
         schec['P'] = (P, PErr)
-        print('P', schec['P'])
+        print 'P', schec['P']
         ev = Evol(schec['Q'][0], schec['P'][0])
     else:
         ev = Evol(0, 0)
         z1 = z2 = None
 
     # Minimum-variance normalization
-    if 'sigma' in schec:
+    if schec.has_key('sigma'):
         sel = SaundSelFn(schec, ev, samp)
     else:
         sel = SelFn(schec, ev, gamTab, samp)
@@ -1005,9 +1005,9 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
                                       args=(sel, dens, wmean),
                                       epsabs=0.01, epsrel=1e-3, full_output=1)
         if len(result) > 3:
-            print(result)
+            print result
             if par['idebug'] > 1:
-                for i in range(len(zarr)):
+                for i in xrange(len(zarr)):
                     rarr[i] = dV(zarr[i], sel, dens, wmean)
                     plot.window()
                     plt.plot(zarr, rarr)
@@ -1017,19 +1017,19 @@ def parFit(samp, zlims, schec, likeFile, errorEst=0):
         dens = sum1/vol
         err = abs(dens-dold)/dens
     dErr = math.sqrt(dens/vol)
-    print('dens = ', dens, '+-', dErr, ', vol = ', vol)
+    print 'dens = ', dens, '+-', dErr, ', vol = ', vol
     if (niter >= maxiter):
-        print('''STY normalisation: max number of iterations exceeded.
-        Relative error in phi* is ''', err)
+        print '''STY normalisation: max number of iterations exceeded.
+        Relative error in phi* is ''', err
 
     phistar = dens/sel.gnorm
     phistarErr = dErr/sel.gnorm
     schec['phistar'] = (phistar, phistarErr)
-    print('phistar', schec['phistar'])
+    print 'phistar', schec['phistar']
 ##     pdb.set_trace()
 
     schec['counts'] = parCounts(schec, ev, samp)
-    print('counts', schec['counts'])
+    print 'counts', schec['counts']
     
     lumdens = lumDens(schec, zlims, ev, samp, gamTab)
 
@@ -1121,18 +1121,18 @@ def parLike(x, parSet, gamTab, samp):
     alpha = x[parSet.index('alpha')]
     a1 = alpha + 1
     if not(gamTab.amin <= a1 < gamTab.amax):
-        if par['idebug'] > 1: print(x, ' alpha outside range')
+        if par['idebug'] > 1: print x, ' alpha outside range'
         return bad
     
     Mstar = x[parSet.index('Mstar')]
     if not(parLimits['Mstar'][0] <= Mstar < parLimits['Mstar'][1]):
-        if par['idebug'] > 1: print(x, ' M* outside range')
+        if par['idebug'] > 1: print x, ' M* outside range'
         return bad
 
     try:
         sigma = x[parSet.index('sigma')]
         if not(parLimits['sigma'][0] <= sigma < parLimits['sigma'][1]):
-            if par['idebug'] > 1: print(x, ' sigma outside range')
+            if par['idebug'] > 1: print x, ' sigma outside range'
             return bad
         # Load lookup table for integral of Saunders LF
         saundTab = SaundersIntLookup(alpha, sigma)
@@ -1143,11 +1143,11 @@ def parLike(x, parSet, gamTab, samp):
         beta = x[parSet.index('beta')]
         ab1 = alpha + beta + 1
         if not(gamTab.amin <= ab1 < gamTab.amax):
-            if par['idebug'] > 1: print(x, ' alpha + beta outide range')
+            if par['idebug'] > 1: print x, ' alpha + beta outide range'
             return bad
         Mt = x[parSet.index('Mt')]
         if not(Mstar <= Mt < parLimits['Mt'][1]):
-            if par['idebug'] > 1: print(x, ' Mt outside range')
+            if par['idebug'] > 1: print x, ' Mt outside range'
             return bad
         dp = 1
     except:
@@ -1176,7 +1176,7 @@ def parLike(x, parSet, gamTab, samp):
     gama1 = gamTab.gamma(a1, lgLlo)
     gama2 = gamTab.gamma(a1, lgLhi)
     if min(gama1 - gama2) <= 0:
-        if par['idebug'] > 1: print('min(gama1 - gama2) = ', min(gama1 - gama2))
+        if par['idebug'] > 1: print 'min(gama1 - gama2) = ', min(gama1 - gama2)
         return bad
         pdb.set_trace()
     if dp:
@@ -1195,7 +1195,7 @@ def parLike(x, parSet, gamTab, samp):
 
 
     if par['idebug'] > 1:
-        print(x, fc)
+        print x, fc
     if fc < -1e10:
         pdb.set_trace()
     return fc
@@ -1318,7 +1318,7 @@ def rhoLike(P, samp, z1, z2):
     nz = len(ztab)
     rhotab = np.zeros(nz)
     rhotab[0] = 0
-    for iz in range(nz-1):
+    for iz in xrange(nz-1):
         zlo = samp.zRange[0] + iz*dz
         zhi = zlo + dz
         result = scipy.integrate.quad(rhofun, zlo, zhi, (ev),
@@ -1330,7 +1330,7 @@ def rhoLike(P, samp, z1, z2):
     result = np.interp(z2, ztab, rhotab) - np.interp(z1, ztab, rhotab)
     fc = -(samp.weight*(ev.logden(samp.z) - np.log(result))).sum()
     if par['idebug'] > 1:
-        print(P, fc)
+        print P, fc
 
     return fc
 
@@ -1343,7 +1343,7 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
     """Output likelihood grids for parametric shape and evolutionary
     parameters Q, P.  Currently only works for first-order evolution."""
 
-    print("Likelihood grids ...")
+    print "Likelihood grids ..."
     nsig = {'alpha': 6, 'Mstar': 6, 'beta': 8, 'Mt': 9, 'Q': 5, 'P': 5}
     
     # Peak likelihood
@@ -1386,8 +1386,8 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             ymax = min(yopt + nsig[ypar]*schec[ypar][1][1], parLimits[ypar][1])
             dy = float(ymax - ymin)/nstep
             
-            print(xpar, xmin, xmax, ypar, ymin, ymax, maxLike)
-            print(par['iband'], xpar, ypar, xopt, yopt, maxLike, nstep, xmin, xmax, ymin, ymax, file=f)
+            print xpar, xmin, xmax, ypar, ymin, ymax, maxLike
+            print >> f, par['iband'], xpar, ypar, xopt, yopt, maxLike, nstep, xmin, xmax, ymin, ymax
 
             header = pyfits.Header()
             header.update('maxlike', maxLike)
@@ -1403,7 +1403,7 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             # Don't move following line before loop or data overwritten
             data = np.zeros([nmarg + 1, nstep, nstep])
 
-            imarg = [k for k in range(npar) if k != i and k != j]
+            imarg = filter(lambda k: k != i and k != j, range(npar))
             x0init = []
             parOrd = []
             margstr = ''
@@ -1414,7 +1414,7 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
                     margstr += parSet[k] + ' '
             header.update('margpar', margstr)
             parOrd += [parSet[i], parSet[j]]
-            print(parOrd)
+            print parOrd
             
             for ix in range(nstep):
                 x0 = np.array(x0init)
@@ -1487,9 +1487,9 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             plt.xlabel(xpar); plt.ylabel(ypar); plt.title('log likelihood')
             plt.draw()
 
-            print('likelihood range', like.min(), like.max())
+            print 'likelihood range', like.min(), like.max()
     # Special case: Q, P
-    if 'P' in schec:        
+    if schec.has_key('P'):        
 
         Q = schec['Q'][0]
         Qmin = max(Q - 5*schec['Q'][1][0], parLimits['Q'][0])
@@ -1500,9 +1500,9 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
         Pmax = min(P + 8*schec['P'][1][1], parLimits['P'][1])
         dP = (Pmax - Pmin)/nstep
 
-        print('Q', Qmin, Qmax, 'P', Pmin, Pmax)
-        print(par['iband'], 'Q', 'P', Q, P, maxLike, nstep, \
-              Qmin, Qmax, Pmin, Pmax, file=f)
+        print 'Q', Qmin, Qmax, 'P', Pmin, Pmax
+        print >> f, par['iband'], 'Q', 'P', Q, P, maxLike, nstep, \
+              Qmin, Qmax, Pmin, Pmax
 
         header = pyfits.Header()
         header.update('maxlike', maxLike)
@@ -1527,7 +1527,7 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
         
             # L(Q|alpha, M*)
             result = scipy.optimize.fmin(
-                lambda alpha, Mstar, Q, parSet, gamTab, samp:
+                lambda (alpha, Mstar), Q, parSet, gamTab, samp:
                 parLike((alpha, Mstar, Q), parSet, gamTab, samp),
                 am_fit, (qt, parSet, gamTab, samp),
                 xtol=0.001, ftol=0.001, full_output=1, disp=0)
@@ -1535,10 +1535,10 @@ def likeGrid(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
 
             # L(P|Q)
             Mevol = samp.absMag + qt*(samp.z - par['z0'])
-            z1 = [zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
-                                   samp.zRange, ev) for i in range(samp.ngal)]
-            z2 = [zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
-                                   samp.zRange, ev) for i in range(samp.ngal)]
+            z1 = map(lambda i: zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
+                                   samp.zRange, ev), xrange(samp.ngal))
+            z2 = map(lambda i: zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
+                                   samp.zRange, ev), xrange(samp.ngal))
 
             result = scipy.optimize.fmin(rhoLike, P_fit, (samp, z1, z2),
                                          xtol=0.001, ftol=0.001,
@@ -1664,7 +1664,7 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
                     like_dict[str(c)] = L
                     c += step
                 c -= step
-            print(n, Lmax)
+            print n, Lmax
             
         # Place likelihoods into an array, pickle & plot
         nstep = 2*n+1
@@ -1677,8 +1677,8 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             for ix in range(-n, n+1):
                 like[iy+n, ix+n] = like_dict[str(np.array([ix, iy]))]
 
-        print(par['iband'], xpar, ypar, xopt, yopt, maxLike, nstep, \
-              xmin, xmax, ymin, ymax, file=f)
+        print >> f, par['iband'], xpar, ypar, xopt, yopt, maxLike, nstep, \
+              xmin, xmax, ymin, ymax
 
         pickle.dump(like, f)
 
@@ -1691,12 +1691,12 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
         plt.xlabel(xpar); plt.ylabel(ypar); plt.title('log likelihood')
         plt.draw()
 
-        print('likelihood range', like.min(), like.max())
+        print 'likelihood range', like.min(), like.max()
 
         return like
     
 
-    print("Likelihood grids ...")
+    print "Likelihood grids ..."
     
     # Peak likelihood
     npar = len(parSet)
@@ -1719,9 +1719,9 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             yopt = schec[ypar][0]
             dy = stepsize(ypar)
             
-            print(xpar, ypar, maxLike, Lmin)
+            print xpar, ypar, maxLike, Lmin
 
-            imarg = [k for k in range(npar) if k != i and k != j]
+            imarg = filter(lambda k: k != i and k != j, range(npar))
             x0init = []
             parOrd = []
             if npar > 2:
@@ -1734,7 +1734,7 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
             like = likeSpiral()
             
     # Special case: Q, P
-    if 'P' in schec:        
+    if schec.has_key('P'):        
 
         nstep = 20
         Q = schec['Q'][0]
@@ -1746,9 +1746,9 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
         Pmax = P + 1.5
         dP = (Pmax - Pmin)/nstep
 
-        print('Q', Qmin, Qmax, 'P', Pmin, Pmax)
-        print(par['iband'], 'Q', 'P', Q, P, maxLike, nstep, \
-              Qmin, Qmax, Pmin, Pmax, file=f)
+        print 'Q', Qmin, Qmax, 'P', Pmin, Pmax
+        print >> f, par['iband'], 'Q', 'P', Q, P, maxLike, nstep, \
+              Qmin, Qmax, Pmin, Pmax
 
         Qarr = np.zeros(nstep)
         Lsty = np.zeros(nstep)
@@ -1777,10 +1777,10 @@ def likeGridSp(schec, parSet, cons, z1, z2, gamTab, samp, likeFile):
 
             # L(P|Q)
             Mevol = samp.absMag + qt*(samp.z - par['z0'])
-            z1 = [zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
-                                   samp.zRange, ev) for i in range(samp.ngal)]
-            z2 = [zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
-                                   samp.zRange, ev) for i in range(samp.ngal)]
+            z1 = map(lambda i: zdm(par['appMin'] - Mevol[i], samp.kcoeff[i],
+                                   samp.zRange, ev), xrange(samp.ngal))
+            z2 = map(lambda i: zdm(par['appMax'] - Mevol[i], samp.kcoeff[i],
+                                   samp.zRange, ev), xrange(samp.ngal))
 
             result = scipy.optimize.fmin(rhoLike, P_fit, (samp, z1, z2),
                                          xtol=0.001, ftol=0.001,
@@ -1831,9 +1831,9 @@ def lumDens(schec, zlims, ev, samp, gamTab):
     r2 = cosmo.dm(samp.zRange[1])
     vol = (r2*r2*r2 - r1*r1*r1)*samp.area/3.0
     ld0err = ld0*math.sqrt(par['J3fac']/vol)
-    print('lumDens(z=0) = %e' % ld0, ' +/- %e' % ld0err, ' Lsun h^3 Mpc^-3')
+    print 'lumDens(z=0) = %e' % ld0, ' +/- %e' % ld0err, ' Lsun h^3 Mpc^-3'
 
-    if 'sigma' in schec:
+    if schec.has_key('sigma'):
         sel = SaundSelFn(schec, ev, samp, lumWeight=1)
     else:
         sel = SelFn(schec, ev, gamTab, samp, lumWeight=1)
@@ -1883,9 +1883,9 @@ def lumDens(schec, zlims, ev, samp, gamTab):
 def vmax(samp, phi):
     """1/Vmax LF estimate (disjoint z slices)"""
 
-    print("1/Vmax estimate...")
+    print "1/Vmax estimate..."
     rRange = cosmo.dm(samp.zRange)
-    for i in range(samp.ngal):
+    for i in xrange(samp.ngal):
         ibin = np.floor((samp.absMag[i] - phi.absMin)/phi.absStep).astype(np.int32)
         if 0 <= ibin < phi.nbin:
             r1 = np.clip(samp.rmin[i], rRange[0], rRange[1])
@@ -1897,17 +1897,17 @@ def vmax(samp, phi):
                 phi.Mav[ibin] += samp.absMag[i]*samp.weight[i]
                 phi.Vmax[ibin] += samp.weight[i]/Vm
             else:
-                print('galaxy ', i, ' distance limits ', r1, r2)
+                print 'galaxy ', i, ' distance limits ', r1, r2
                 
     phi.Vmax *= 3.0/samp.area/par['absStep']
-    for ibin in range(phi.nbin):
+    for ibin in xrange(phi.nbin):
         if phi.wsum[ibin] > 0:
             phi.Mav[ibin] /= phi.wsum[ibin]
         if phi.ngal[ibin] > 0:
             phi.VmaxErr[ibin] = phi.Vmax[ibin]/math.sqrt(phi.ngal[ibin])
 
     if par['idebug'] > 1:
-        print(phi.Mav, phi.Vmax)
+        print phi.Mav, phi.Vmax
 
     plot.window()
     phi.VmaxPlot()
@@ -1920,21 +1920,21 @@ def vmax(samp, phi):
 def swml(samp, phi, schec):
     """SWML LF estimate (disjoint z slices)"""
 
-    print("SWML estimate...")
+    print "SWML estimate..."
     phi.swml = np.copy(phi.Vmax)
     maxiter = 100
     tol = 1e-6
 
     # Bin coverage H[igal, ibin]
     H = np.zeros([samp.ngal, phi.nbin])
-    for igal in range(samp.ngal):
+    for igal in xrange(samp.ngal):
 
         # Lower (bright) limit
-        ilo, frac = phi.bin(samp.absMin[igal])
+	ilo, frac = phi.bin(samp.absMin[igal])
         wtlo = 1 - frac
         
         # Upper (faint) limit
-        ihi, wthi = phi.bin(samp.absMax[igal])
+	ihi, wthi = phi.bin(samp.absMax[igal])
 
         H[igal, ilo] = wtlo
         H[igal, ilo+1:ihi] = 1
@@ -1953,13 +1953,13 @@ def swml(samp, phi, schec):
     niter = 0
     dpm = 1.0
     if par['idebug'] > 1:
-        print("Iteration   mean change  rms change  max change sf")
+        print "Iteration   mean change  rms change  max change sf"
     while (niter < maxiter and dpm > tol):
         phiOld = phi.swml.copy()
         sum0 = np.dot(H, phiOld)
         sum1 = np.dot(samp.weight/sum0, H)
 ##        print 'sum0: ', sum0
-        for ibin in range(phi.nbin):
+        for ibin in xrange(phi.nbin):
             if sum1[ibin] > 0:
                 phi.swml[ibin] = phi.wsum[ibin]/sum1[ibin]
             else:
@@ -1970,19 +1970,19 @@ def swml(samp, phi, schec):
         phi.swml *= scale
         idx = phiOld > 0
         dfrac = (phi.swml[idx] - phiOld[idx])/phiOld[idx]
-        if par['idebug'] > 1: print(phi.swml)
+        if par['idebug'] > 1: print phi.swml
         dp = dfrac.mean()
         dps = dfrac.std()
         dpm = (np.abs(dfrac)).max()
         if par['idebug'] > 1:
-            print(niter, dp, dps, dpm, scale)
+            print niter, dp, dps, dpm, scale
         niter += 1
 
     # Likelihood ratio test
     sumSTY = 0
     sumSWML = 0
     nbin = 0
-    for ibin in range(phi.nbin):
+    for ibin in xrange(phi.nbin):
         if phi.sty[ibin] > 0 and phi.swml[ibin] > 0:
             sumSTY += phi.wsum[ibin]*math.log(phi.sty[ibin])
             sumSWML += phi.wsum[ibin]*math.log(phi.swml[ibin])
@@ -1995,7 +1995,7 @@ def swml(samp, phi, schec):
         phi.prob = scipy.special.chdtrc(phi.nu, -2*phi.lnLikeRatio)
     else:
         phi.prob = 0
-    print('ln likelihood ratio, nu, prob = ', phi.lnLikeRatio, phi.nu, phi.prob)
+    print 'ln likelihood ratio, nu, prob = ', phi.lnLikeRatio, phi.nu, phi.prob
 ##     if phi.lnLikeRatio > 0: pdb.set_trace()
     
     if par['normType'] == 'dh': swmlNorm(samp, phi)
@@ -2011,14 +2011,14 @@ def swml(samp, phi, schec):
     nuse = phi.swml[idx].size
     csum = (phi.swml[idx]*10**(-0.4*beta*(phi.Mav[idx] - Mfid))).sum()
     if par['idebug'] > 1:
-        print("csum = ", csum)
+        print "csum = ", csum
 
     # Create and fill information matrix
     inf = np.zeros([nuse+1, nuse+1])
     
-    for j in range(nuse):
+    for j in xrange(nuse):
         jbin = phi.binno[idx][j]
-        for i in range(j+1):
+        for i in xrange(j+1):
             ibin = phi.binno[idx][i]
             zz1 = (samp.weight*H[:, ibin]*H[:, jbin]/(sum0/csum)**2).sum()
             if ibin == jbin:
@@ -2032,13 +2032,13 @@ def swml(samp, phi, schec):
 
     varsum = 0
     g = 0
-    for i in range(nuse):
+    for i in xrange(nuse):
         ibin = phi.binno[idx][i]
         var = -covar[i,i]
         if var < 0:
             phi.swmlErr[ibin] = phi.VmaxErr[ibin]
             if par['idebug'] > 0:
-                print('Warning: cov[', ibin, ibin, ') = ', var)
+                print 'Warning: cov[', ibin, ibin, ') = ', var
         else:
             phi.swmlErr[ibin] = math.sqrt(var)*csum
         g += phi.swml[ibin]
@@ -2046,8 +2046,8 @@ def swml(samp, phi, schec):
               
     varsum = math.sqrt(varsum)
     if par['idebug'] > 1:
-        print('varsum, g = ', varsum, g)
-        print(phi.Mav, phi.swml, phi.swmlErr)
+        print 'varsum, g = ', varsum, g
+        print phi.Mav, phi.swml, phi.swmlErr
     plot.window()
     phi.swmlPlot()
     
@@ -2067,11 +2067,11 @@ def swmlNorm(samp, phi):
     plt.draw()
 
     # Select galaxies to use for normalisation
-    usegal = [gal[i] for i in range(ngal) if phi.use[gal[i].phiBin]]
+    usegal = [gal[i] for i in xrange(ngal) if phi.use[gal[i].phiBin]]
     nuse = len(usegal)
-    weight = np.array([usegal[i].weight for i in range(nuse)])
+    weight = np.array([usegal[i].weight for i in xrange(nuse)])
     wmean = weight.mean()
-    selg = np.array([phi.sel(usegal[i].z) for i in range(nuse)])
+    selg = np.array([phi.sel(usegal[i].z) for i in xrange(nuse)])
 
     dens = 0.1 # first guess
     err = 1
@@ -2086,21 +2086,21 @@ def swmlNorm(samp, phi):
                                       epsabs=0.01, epsrel=1e-4, full_output=1)
         if len(result) > 3:
             rarr = np.zeros(len(phi._z))
-            for i in range(len(phi._z)):
+            for i in xrange(len(phi._z)):
                 rarr[i] = dV(phi._z[i], phi, dens, wmean)
             plot.window()
             plt.plot(phi._z, rarr)
             plt.xlabel('z'); plt.ylabel('$dV/dz S(z) w(z)$'); plt.draw()
             pdb.set_trace()
         vol = result[0]*samp.area
-        sum1 = (weight/(1 + par['J3fac']*dens/wmean*selg)).sum()
+	sum1 = (weight/(1 + par['J3fac']*dens/wmean*selg)).sum()
         dens = sum1/vol
         err = abs(dens-dold)/dens
     dErr = math.sqrt(dens/vol)
-    print('dens = ', dens, ' +- ', dErr, ', vol = ', vol)
+    print 'dens = ', dens, ' +- ', dErr, ', vol = ', vol
     if (niter >= maxiter):
-        print('''LFswml: max number of iterations exceeded.
-        Relative error in phi* is ''', err)
+        print '''LFswml: max number of iterations exceeded.
+        Relative error in phi* is ''', err
 
     # Rescale SWML estimates to give correct normalisation
     phi.swml *= dens/(phisum*phi.absStep)
@@ -2110,7 +2110,7 @@ def swmlNorm2sty(samp, phi, schec):
 
     swmlVsum = 0.0
     styVsum = 0.0
-    for ibin in range(phi.nbin):
+    for ibin in xrange(phi.nbin):
         r1 = cosmo.dm(zdm(par['appMin'] - phi.Mav[ibin], samp.kmean, samp.zRange))
         r2 = cosmo.dm(zdm(par['appMax'] - phi.Mav[ibin], samp.kmean, samp.zRange))
         Vm = r2*r2*r2 - r1*r1*r1
@@ -2119,7 +2119,7 @@ def swmlNorm2sty(samp, phi, schec):
     scale = styVsum/swmlVsum
     phi.swml *= scale
     if par['idebug'] > 1:
-        print('swmlNorm2sty scale = ', scale)
+        print 'swmlNorm2sty scale = ', scale
 
 def swmlNorm2vmax(samp, phi, schec):
     """Normalise SWML estimate to Vmax (Lin et al eqn 20) and return
@@ -2127,7 +2127,7 @@ def swmlNorm2vmax(samp, phi, schec):
 
     swmlVsum = 0.0
     vmaxVsum = 0.0
-    for ibin in range(phi.nbin):
+    for ibin in xrange(phi.nbin):
         r1 = cosmo.dm(zdm(par['appMin'] - phi.Mav[ibin], samp.kmean, samp.zRange))
         r2 = cosmo.dm(zdm(par['appMax'] - phi.Mav[ibin], samp.kmean, samp.zRange))
         Vm = r2*r2*r2 - r1*r1*r1
@@ -2136,7 +2136,7 @@ def swmlNorm2vmax(samp, phi, schec):
     scale = vmaxVsum/swmlVsum
     phi.swml *= scale
     if par['idebug'] > 1:
-        print('swmlNorm2vmax scale = ', scale)
+        print 'swmlNorm2vmax scale = ', scale
     return samp.area/3.0/samp.weight.mean()*vmaxVsum*par['absStep']
 
 #------------------------------------------------------------------------------
@@ -2193,7 +2193,7 @@ class Sample(object):
         if self.ngal > 0:
             zbin = np.linspace(zRange[0], zRange[1], 50) - par['z0']
             k_array = [np.polyval(kcoeff[igal], zbin)
-                       for igal in range(self.ngal)]
+                       for igal in xrange(self.ngal)]
             k_median = np.median(k_array, axis=0)
             self.kmean = np.polyfit(zbin, k_median, len(kcoeff[0]))
             k_fit = np.polyval(self.kmean, zbin)
@@ -2273,8 +2273,8 @@ class BinnedPhi(object):
             self.absMax = par['absMin'] + phiMax*par['absStep']
             self.zRange = zRange
             if par['idebug'] > 0:
-                print('phiMin, phiMax, absMin, absMax = ', \
-                      phiMin, phiMax, self.absMin, self.absMax)
+                print 'phiMin, phiMax, absMin, absMax = ', \
+                      phiMin, phiMax, self.absMin, self.absMax
             
             self.absStep = par['absStep']
             self.zmean = 0.5
@@ -2312,12 +2312,12 @@ class BinnedPhi(object):
         M = absMin + (ibin+frac)*absStep."""
         M = max(M, self.absMin)
         M = min(M, self.absMax)
-        ibin = np.floor((M - self.absMin)/self.absStep).astype(np.int32)
+	ibin = np.floor((M - self.absMin)/self.absStep).astype(np.int32)
         if ibin >= self.nbin:
             ibin = self.nbin - 1
         frac = (M - (self.absMin + ibin*self.absStep))/self.absStep
         if (frac < 0 or frac > 1):
-            print('frac = ', frac)
+            print 'frac = ', frac
         return ibin, frac
     
     def VmaxPlot(self, Mrange=None, phirange=[1e-6, 1]):
@@ -2356,12 +2356,12 @@ class BinnedPhi(object):
     def save(self, f):
         """Save binned phi estimate to file f"""
 
-        print([self.zRange, self.zmean, self.ntot, self.counts, self.kmean], file=f)
-        print(self.nbin, self.absMin, self.absMax, self.lnLikeRatio, self.nu, self.prob, file=f)
-        for i in range(self.nbin):
-            print(self.ngal[i], self.Mav[i], \
+        print >> f, [self.zRange, self.zmean, self.ntot, self.counts, self.kmean]
+        print >> f, self.nbin, self.absMin, self.absMax, self.lnLikeRatio, self.nu, self.prob
+        for i in xrange(self.nbin):
+            print >> f, self.ngal[i], self.Mav[i], \
                   self.Vmax[i], self.VmaxErr[i], \
-                  self.swml[i], self.swmlErr[i], self.sty[i], file=f)
+                  self.swml[i], self.swmlErr[i], self.sty[i]
         
         
     def setNorm(self):
@@ -2381,7 +2381,7 @@ class BinnedPhi(object):
         nz = self._z.size
         self._sel = np.zeros(nz)
 
-        for iz in range(nz):
+        for iz in xrange(nz):
             rmod = dmodk(self._z[iz], samp.kmean)
             # Lower (bright) limit
             ilo, frac = self.bin(par['appMin'] - rmod)
@@ -2391,13 +2391,13 @@ class BinnedPhi(object):
             ihi, wthi = self.bin(par['appMax'] - rmod)
 
             sumn = self.swml[ilo]*self.use[ilo]*wtlo
-            for iphi in range(ilo+1, ihi):
+            for iphi in xrange(ilo+1, ihi):
                 sumn += self.swml[iphi]*self.use[iphi]
             sumn += self.swml[ihi]*self.use[ihi]*wthi
             
             self._sel[iz] = sumn/self._phisum
             if (self._sel[iz] < 0 or self._sel[iz] > 1.001):
-                print('selSWML: bad sel ', self._sel[iz])
+                print 'selSWML: bad sel ', self._sel[iz]
     
     def sel(self, z):
         """Lookup selection function."""
@@ -2452,7 +2452,7 @@ class interpolate(object):
         """Return interpolated value"""
 
         if x < self._xmin or x > self._xmax:
-            print('interpolate.interp: x value ', x, ' outside valid range ', self._xmin, self._xmax)
+            print 'interpolate.interp: x value ', x, ' outside valid range ', self._xmin, self._xmax
             return 0.0
         
         xscale = (x - self._xmin)/self._xstep
@@ -2462,7 +2462,7 @@ class interpolate(object):
         
         wt = ix + 1 - xscale
         if (wt < 0 or wt > 1):
-            print('interpolate.interp: wt = ', wt)
+            print 'interpolate.interp: wt = ', wt
         return wt*self._ytab[ix] + (1-wt)*self._ytab[ix+1]
 
 class plotWindow(object):
@@ -2487,7 +2487,7 @@ class plotWindow(object):
                 plt.clf()
             fignum = self._fignum
             if par['idebug'] > 1:
-                print('plot number ', fignum)
+                print 'plot number ', fignum
         plt.subplot(self._numrows, self._numcols, fignum)
         plt.cla()
 
@@ -2497,7 +2497,7 @@ class plotWindow(object):
             self._page += 1
             savefile = self._file + '_%d' % self._page + '.' + self._format
             if par['idebug'] > 1:
-                print('Saving ', savefile)
+                print 'Saving ', savefile
         plt.savefig(savefile)
 
 def test():
@@ -2525,9 +2525,9 @@ class gammaLookup(object):
         self.log_gam = np.zeros([na, nx])
         
         # Load the lookup table cumulatively from large to small x at each a
-        for i in range(na):
+        for i in xrange(na):
             gsum = 0
-            for j in range(nx-1, -1, -1):
+            for j in xrange(nx-1, -1, -1):
                 g = scipy.integrate.quad(gamfun, xx[j], xx[j+1], a[i],
                                          full_output=1)
                 if len(g) > 3:
@@ -2536,7 +2536,7 @@ class gammaLookup(object):
                 self.log_gam[i,j] = np.log10(gsum)
 
         if par['idebug'] > 1:
-            print('log gamma:', self.log_gam)
+            print 'log gamma:', self.log_gam
             plot.window()
             plt.imshow(self.log_gam, aspect='auto',
                        origin='lower', extent=[xmin, xmax, amin, amax])
@@ -2548,8 +2548,8 @@ class gammaLookup(object):
             a = np.arange(amin, amax, self.astep/math.pi)
             x = np.arange(xmin, xmax, self.xstep/math.pi)
             gam_int = np.zeros([a.size, x.size])
-            for i in range(a.size):
-                for j in range(x.size):
+            for i in xrange(a.size):
+                for j in xrange(x.size):
                     gam_int[i,j] = math.log10(self.gamma(a[i], x[j]))
             plot.window()
             plt.imshow(gam_int, aspect='auto',
@@ -2619,7 +2619,7 @@ class SaundersIntLookup(object):
         
         # Load the lookup table cumulatively from large to small x
         gsum = 0
-        for j in range(nx-1, -1, -1):
+        for j in xrange(nx-1, -1, -1):
             g = scipy.integrate.quad(saunders_lf, xx[j], xx[j+1], 
                                      (alpha, sigma), full_output=1)
             if len(g) > 3:
@@ -2628,7 +2628,7 @@ class SaundersIntLookup(object):
             self.log_int[j] = np.log10(gsum)
 
         if par['idebug'] > 1:
-            print('log saund:', self.log_int)
+            print 'log saund:', self.log_int
             plot.window()
             plt.plot(self.x, self.log_int)
             plt.xlabel('x'); plt.ylabel('log int Saunders')
@@ -2688,7 +2688,7 @@ class SelFn(object):
         self.gnorm = gama1[0] - gama2[0]
         if lumWeight:
             self.gnorm = scipy.special.gamma(a1)
-            print('gnorm (M1 - M2): ', gama1[0] - gama2[0], ', extrapolated: ', self.gnorm)
+            print 'gnorm (M1 - M2): ', gama1[0] - gama2[0], ', extrapolated: ', self.gnorm
         if dp:
             gamb1 = gamTab.gamma(ab1, lgLlo)
             gamb2 = gamTab.gamma(ab1, lgLhi)
@@ -2697,7 +2697,7 @@ class SelFn(object):
             else:
                 self.gnorm += Lstb*(gamb1[0] - gamb2[0])
 
-        for iz in range(self._nz):
+        for iz in xrange(self._nz):
             rmod = dmodk(self._z[iz], samp.kmean)
             dM = ev.lum(self._z[iz])
 
@@ -2716,7 +2716,7 @@ class SelFn(object):
             
             sel = gam/self.gnorm
             if sel < 0 or sel > 1:
-                print("selFn: bad sel ", sel)
+                print "selFn: bad sel ", sel
 ##                 pdb.set_trace()
             self._sel[iz] = sel
         self._sel = np.clip(self._sel, 0.0, 1.0)
@@ -2743,7 +2743,7 @@ class SaundSelFn(object):
         lgLlo = 0.4*(Mstar - par['absMaxSTY'])
         lgLhi = 0.4*(Mstar - par['absMinSTY'])
         self.gnorm = saundTab.saund_int(lgLlo)[0] - saundTab.saund_int(lgLhi)[0]
-        for iz in range(self._nz):
+        for iz in xrange(self._nz):
             rmod = dmodk(self._z[iz], samp.kmean)
             dM = ev.lum(self._z[iz])
 
@@ -2755,7 +2755,7 @@ class SaundSelFn(object):
             gam = saundTab.saund_int(lgLlo) - saundTab.saund_int(lgLhi)
             sel = gam/self.gnorm
             if sel < 0 or sel > 1:
-                print("SaundSelFn: bad sel ", sel)
+                print "SaundSelFn: bad sel ", sel
 ##                 pdb.set_trace()
             self._sel[iz] = sel
         self._sel = np.clip(self._sel, 0.0, 1.0)
@@ -2853,9 +2853,9 @@ class lfData(object):
 
         f = open(outFile, 'w')
 
-        print(self.par, file=f)
-        print(self.schec, file=f)
-        print(self.lumdens, file=f)
+        print >> f, self.par
+        print >> f, self.schec
+        print >> f, self.lumdens
     
         for iz in range(self.par['nz']):
             phi = self.phiList[iz]
@@ -2934,15 +2934,15 @@ def schecBin(schec, ev, phi):
     rounding errors.  Not serious I think, as typical integrand values are
     ~10000"""
 
-    print("Integrating parametric LF over mag bins")
+    print "Integrating parametric LF over mag bins"
     
     if par['idebug'] > 1:
         # Plot integrand
         M = np.arange(phi.absMin, phi.absMax, 0.01)
         z = np.arange(phi.zRange[0], phi.zRange[1], 0.001)
         phiv = np.zeros([M.size, z.size])
-        for i in range(M.size):
-            for j in range(z.size):
+        for i in xrange(M.size):
+            for j in xrange(z.size):
                 phiv[i,j] = SchecEv(M[i], z[j], schec, ev)*cosmo.dV(z[j])
         plot.window()
         plt.imshow(phiv, aspect='auto', origin='lower',
@@ -2952,7 +2952,7 @@ def schecBin(schec, ev, phi):
         plt.draw()
             
     schec_bin = np.zeros(phi.nbin)
-    for ibin in range(phi.nbin):
+    for ibin in xrange(phi.nbin):
         Mlo = phi.absMin + ibin*phi.absStep
         Mhi = phi.absMin + (ibin+1)*phi.absStep
         
@@ -2961,14 +2961,14 @@ def schecBin(schec, ev, phi):
                 phi_int, Mlo, Mhi, args=(schec, ev, phi),
                 epsabs=0.01, epsrel=1e-3, full_output=1)
             if len(result) > 3 and par['idebug'] > 0:
-                print('schecBin: phi_int integral over ', Mlo, Mhi, ' gives result ', result)
+                print 'schecBin: phi_int integral over ', Mlo, Mhi, ' gives result ', result
 
                 # Plot integrand
                 M = np.arange(Mlo, Mhi, 0.01)
                 z = np.arange(phi.zRange[0], phi.zRange[1], 0.001)
                 phiv = np.zeros([M.size, z.size])
-                for i in range(M.size):
-                    for j in range(z.size):
+                for i in xrange(M.size):
+                    for j in xrange(z.size):
                         phiv[i,j] = SchecEv(M[i], z[j], schec, ev)*cosmo.dV(z[j])
                 plot.window()
                 plt.imshow(phiv, aspect='auto', origin='lower',
@@ -2982,7 +2982,7 @@ def schecBin(schec, ev, phi):
                 phi2_int, Mlo, Mhi, args=(schec, ev, phi),
                 epsabs=0.01, epsrel=1e-3, full_output=1)
             if len(result) > 3 and par['idebug'] > 0:
-                print('schecBin: phi2_int integral over ', Mlo, Mhi, ' gives result ', result)
+                print 'schecBin: phi2_int integral over ', Mlo, Mhi, ' gives result ', result
             
             if result[0] > 0:
                 schec_bin[ibin] = result2[0]/result[0]
@@ -3024,12 +3024,12 @@ def SchecEv(M, z, schec, ev):
     """Evolving Schechter or Saunders function."""
 
     L = 10**(0.4*(schec['Mstar'][0] - ev.lum(z) - M))
-    if 'sigma' in schec:
+    if schec.has_key('sigma'):
         ans = 0.4*ln10*schec['phistar'][0]*ev.den(z)*saunders_lf(L, schec['alpha'][0]+1, schec['sigma'][0])
         return ans
 
     ans = 0.4*ln10*schec['phistar'][0]*ev.den(z)*L**(schec['alpha'][0]+1)*math.exp(-L)
-    if 'beta' in schec:
+    if schec.has_key('beta'):
         Lt = 10**(0.4*(schec['Mt'][0] - M))
         ans *= (1 + Lt**schec['beta'][0])
     return ans
@@ -3115,9 +3115,9 @@ def jackErrs(obsFile, jackList, outFile):
 
     if len(jackList[0]) == 1:
         jackList = glob.glob(jackList)
-    print(jackList)
+    print jackList
     njack = len(jackList)
-    estr = list(range(njack))
+    estr = range(njack)
     lfList = []
     jfac = njack - 1
     iest = 0
@@ -3128,21 +3128,23 @@ def jackErrs(obsFile, jackList, outFile):
 
     # Schechter shape parameters
     for key in ('alpha', 'Mstar', 'Q', 'P', 'beta', 'Mt', 'phistar'):
-        if key in lf.schec:
+        if lf.schec.has_key(key):
             err = np.sqrt(
-                jfac*np.var([lfList[i].schec[key][0] for i in estr]))
+                jfac*np.var(map(lambda i: lfList[i].schec[key][0], estr)))
             lf.schec[key] = (lf.schec[key][0], err)
     
     key = 'counts'
-    if key in lf.schec:
+    if lf.schec.has_key(key):
         err = np.sqrt(
-            jfac*np.var([lfList[i].schec[key] for i in estr]))
+            jfac*np.var(map(lambda i: lfList[i].schec[key], estr)))
         lf.schec[key] = (lf.schec[key], err)
     
     # Luminosity density
-    err = np.sqrt(jfac*np.var([lfList[i].lumdens['ld0'][0] for i in estr]))
+    err = np.sqrt(jfac*np.var(map(lambda i: lfList[i].lumdens['ld0'][0],
+                                    estr)))
     lf.lumdens['ld0'] = (lf.lumdens['ld0'][0], err)
-    err = np.sqrt(jfac*np.var([lfList[i].lumdens['ld'][0] for i in estr], 0)).tolist()
+    err = np.sqrt(jfac*np.var(map(lambda i: lfList[i].lumdens['ld'][0],
+                                    estr), 0)).tolist()
     lf.lumdens['ld'] = (lf.lumdens['ld'][0], err)
     
     # Binned estimates
@@ -3160,9 +3162,9 @@ def jackErrs(obsFile, jackList, outFile):
 
             if ngmin > 0:
                 phi.VmaxErr[ibin] = np.sqrt(jfac*np.var(
-                    [lfList[i].phiList[iz].Vmax[ibin] for i in estr]))
+                    map(lambda i: lfList[i].phiList[iz].Vmax[ibin], estr)))
                 phi.swmlErr[ibin] = np.sqrt(jfac*np.var(
-                    [lfList[i].phiList[iz].swml[ibin] for i in estr]))
+                    map(lambda i: lfList[i].phiList[iz].swml[ibin], estr)))
             else:
                 phi.ngal[ibin] = phi.Mav[ibin] = phi.Vmax[ibin] = phi.VmaxErr[ibin] = phi.swml[ibin] =  phi.swmlErr[ibin] = phi.sty[ibin] = 0
         lf.phiList[iz] = phi
@@ -3176,9 +3178,9 @@ def simAv(fileList, outFile):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     nest = len(fileList)
-    estr = list(range(nest))
+    estr = range(nest)
     lfList = []
     iest = 0
     for inFile in fileList:
@@ -3188,27 +3190,27 @@ def simAv(fileList, outFile):
 
     # Schechter shape parameters
     for key in ('alpha', 'Mstar', 'Q', 'P', 'beta', 'Mt', 'phistar'):
-        if key in lf.schec:
-            val = np.mean([lfList[i].schec[key][0] for i in estr])
-            err = np.std([lfList[i].schec[key][0] for i in estr])
+        if lf.schec.has_key(key):
+            val = np.mean(map(lambda i: lfList[i].schec[key][0], estr))
+            err = np.std(map(lambda i: lfList[i].schec[key][0], estr))
             lf.schec[key] = (val, err)
     
     # Luminosity density
-    val = np.mean([lfList[i].lumdens['ld0'][0] for i in estr])
-    err = np.std([lfList[i].lumdens['ld0'][0] for i in estr])
+    val = np.mean(map(lambda i: lfList[i].lumdens['ld0'][0], estr))
+    err = np.std(map(lambda i: lfList[i].lumdens['ld0'][0], estr))
     lf.lumdens['ld0'] = (val, err)
 
-    val = np.mean([lfList[i].lumdens['ld'][0] for i in estr], 0).tolist()
-    err = np.std([lfList[i].lumdens['ld'][0] for i in estr], 0).tolist()
+    val = np.mean(map(lambda i: lfList[i].lumdens['ld'][0], estr), 0).tolist()
+    err = np.std(map(lambda i: lfList[i].lumdens['ld'][0], estr), 0).tolist()
     lf.lumdens['ld'] = (val, err)
     
     # Binned estimates
     for iz in range(lf.par['nz']):
         phi = lf.phiList[iz]
         phi.lnLikeRatio = np.mean(
-            [lfList[i].phiList[iz].lnLikeRatio for i in estr])
-        phi.nu = np.mean([lfList[i].phiList[iz].nu for i in estr])
-        phi.prob = np.mean([lfList[i].phiList[iz].prob for i in estr])
+            map(lambda i: lfList[i].phiList[iz].lnLikeRatio, estr))
+        phi.nu = np.mean(map(lambda i: lfList[i].phiList[iz].nu, estr))
+        phi.prob = np.mean(map(lambda i: lfList[i].phiList[iz].prob, estr))
 
         for ibin in range(phi.nbin):
             # Only use bins for which all estimates have one or more galaxies,
@@ -3221,20 +3223,20 @@ def simAv(fileList, outFile):
 
             if ngmin > 0:
                 phi.Mav[ibin] = sum(
-                    [lfList[i].phiList[iz].ngal[ibin]*
-                        lfList[i].phiList[iz].Mav[ibin] for i in estr])/ngsum
+                    map(lambda i: lfList[i].phiList[iz].ngal[ibin]*
+                        lfList[i].phiList[iz].Mav[ibin], estr))/ngsum
                 phi.ngal[ibin] = sum(
-                    [lfList[i].phiList[iz].ngal[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].ngal[ibin], estr))
                 phi.Vmax[ibin] = np.mean(
-                    [lfList[i].phiList[iz].Vmax[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].Vmax[ibin], estr))
                 phi.VmaxErr[ibin] = np.std(
-                    [lfList[i].phiList[iz].Vmax[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].Vmax[ibin], estr))
                 phi.swml[ibin] = np.mean(
-                    [lfList[i].phiList[iz].swml[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].swml[ibin], estr))
                 phi.swmlErr[ibin] = np.std(
-                    [lfList[i].phiList[iz].swml[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].swml[ibin], estr))
                 phi.sty[ibin] = np.mean(
-                    [lfList[i].phiList[iz].sty[ibin] for i in estr])
+                    map(lambda i: lfList[i].phiList[iz].sty[ibin], estr))
             else:
                 phi.ngal[ibin] = phi.Mav[ibin] = phi.Vmax[ibin] = phi.VmaxErr[ibin] = phi.swml[ibin] =  phi.swmlErr[ibin] = phi.sty[ibin] = 0
         lf.phiList[iz] = phi
@@ -3531,7 +3533,7 @@ def tabulate(fileList = ('lf_faint_?c.dat', 'lf_faint_?b.dat', 'lf_faint_?r.dat'
     for file in fileList:
         globList += glob.glob(file)
     fileList = globList
-    print(fileList)
+    print fileList
 
     f = open(outFile, 'w')
     
@@ -3545,14 +3547,14 @@ def tabulate(fileList = ('lf_faint_?c.dat', 'lf_faint_?b.dat', 'lf_faint_?r.dat'
         colour = lf.par['colour']
         for iz in range(lf.par['nz']):
             phi = lf.phiList[iz]
-            print(band, colour, phi.zRange, file=f)
-            print('ngal    M     Vmax   VmaxErr     swml  swmlErr     sty', file=f)
+            print >> f, band, colour, phi.zRange
+            print >> f, 'ngal    M     Vmax   VmaxErr     swml  swmlErr     sty'
             for ibin in range(phi.nbin):
                 ng = int(phi.ngal[ibin]) # Without int get format error
                 if ng > 0:
                     line = '{:4d} {:6.2f} {:4.2e} {:4.2e} {:4.2e} {:4.2e} {:4.2e}'.format(ng, phi.Mav[ibin], phi.Vmax[ibin], phi.VmaxErr[ibin], phi.swml[ibin], phi.swmlErr[ibin], phi.sty[ibin])
-                    print(line, file=f)
-            print(file=f)
+                    print >> f, line
+            print >> f
     f.close()
     
 def lumPlot(inFile, fitSchec=0):
@@ -3600,7 +3602,7 @@ def lumPlot(inFile, fitSchec=0):
             phistar = 10**fit[3]
                 
             plotSaund(alpha, Mstar, sigma, phistar, Mmin, Mmax)
-            print(alpha, Mstar, sigma, phistar)
+            print alpha, Mstar, sigma, phistar
         plt.axis([Mmin, Mmax, 1e-6, 1])
         plt.xlabel('$M_%s$' % lf.par['band'])
         plt.ylabel('$\phi$')
@@ -3642,7 +3644,7 @@ def evPlot(inFile, normSim=0, fitSchec=0):
     else:
         subplot = 111
         
-    print(lf.schec)
+    print lf.schec
 ##     Mmin = schec['absMinSTY']
 ##     Mmax = lf.par['absMaxSTY']
     Mmax = -13
@@ -3780,12 +3782,12 @@ def evPlot(inFile, normSim=0, fitSchec=0):
         w = 1.0/(0.5*(yerr[0] + yerr[1]))**2
         a, aVar, b, bVar = wtdLineFit(zmean - z0, Mstar, w)
         plt.plot([zmin, zmax], [a + b*(zmin - z0), a + b*(zmax - z0)])
-        print('M* = ', a, ' + ', b, '*z')
+        print 'M* = ', a, ' + ', b, '*z'
         Q = -b
         QErr = math.sqrt(bVar)
         a, cov = wtdPolyFit(zmean - z0, Mstar, w, 2)
         plt.plot(zz, np.polyval(a, zz - z0))
-        print(a)
+        print a
         plt.ylabel(r'$M^*$')
         plt.xlabel(r'$z$')
         plt.text(0.05, 0.1, r'$Q = {:4.1f} \pm {:4.1f}$'.format(Q, QErr),
@@ -3799,12 +3801,12 @@ def evPlot(inFile, normSim=0, fitSchec=0):
         w = 1.0/(0.5*(yerr[0] + yerr[1]))**2
         a, aVar, b, bVar = wtdLineFit(zmean, lpstar, w)
         plt.plot([zmin, zmax], [a + b*zmin, a + b*zmax])
-        print('log phi* = ', a, ' + ', b, '*z')
+        print 'log phi* = ', a, ' + ', b, '*z'
         P = b
         PErr = math.sqrt(bVar)
         a, cov = wtdPolyFit(zmean, lpstar, w, 2)
         plt.plot(zz, np.polyval(a, zz))
-        print(a)
+        print a
         plt.ylabel(r'$\lg \phi^*$')
         plt.xlabel(r'$z$')
         plt.text(0.05, 0.1, r'$P = {:4.1f} \pm {:4.1f}$'.format(P, PErr),
@@ -3878,13 +3880,13 @@ def lsqEvFit(fileList = ('lf_ev8_??.dat'), outFile='lsqEv8Fit.dat'):
     """Fit evolution parameters Q, P to swml estimates by least-squares."""
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     fout = open(outFile, 'w')
     
     for inFile in fileList:
         Q, QErr, P, PErr = evPlot(inFile, fitSchec=1)
-        print(inFile, Q, QErr, P, PErr, file=fout)
+        print >> fout, inFile, Q, QErr, P, PErr
     fout.close()
 
 def evPlotAll(fileList = ('lf_ev4_?c.dat', 'lf_ev4_?b.dat', 'lf_ev4_?r.dat'),
@@ -3898,7 +3900,7 @@ def evPlotAll(fileList = ('lf_ev4_?c.dat', 'lf_ev4_?b.dat', 'lf_ev4_?r.dat'),
     for file in fileList:
         globList += glob.glob(file)
     fileList = globList
-    print(fileList)
+    print fileList
 
     # M* and lg phi* limits for each band
     mslimit = ((-20.5, -16.8), (-20.5, -18.8), (-21.5, -19.5), (-21.5, -19.99),
@@ -4038,7 +4040,7 @@ def ev_comp(fileList = ('lf_ev3_?c.dat')):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     # Read VVDS and zCOSMOS data
     file = os.environ['HOME'] + '/Documents/Research/LFdata/ilbert2005.dat'
@@ -4118,7 +4120,7 @@ def ev_comp(fileList = ('lf_ev3_?c.dat')):
                     phistar = zcos[iz][8]/(1000*h**3)
                     Mlo = zcos[iz][2]
                     Mhi = zcos[iz][3]
-                    print(alpha, Mstar, phistar)
+                    print alpha, Mstar, phistar
                     
                     plotSchec(alpha, Mstar, phistar, Mmin, Mmax,
                               lineStyle='g--', axes=ax)
@@ -4153,7 +4155,7 @@ def evPlotMulti(fileList = ('lf_ev_??.dat')):
     mhi = [-10, -11, -12, -13, -13]
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     # Read number of z-bins from first file
     lf = lfData(fileList[0])
@@ -4224,7 +4226,7 @@ def faintPlotAll(fileList=None):
 
     if fileList == None:
         fileList = glob.glob('lf_faint_??.dat') + glob.glob('lf_dp_??.dat')
-    print(fileList)
+    print fileList
 
     fdir = '/pactusers/loveday/Documents/tex/papers/gama/lf1/'
 
@@ -4311,7 +4313,7 @@ def evCompPlot(fileList):
     
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     fig = plt.figure(1)
     plt.clf()
@@ -4358,7 +4360,7 @@ def evColourPlot(fileList):
     
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     fig = plt.figure(1)
     plt.clf()
@@ -4451,7 +4453,7 @@ def faintCompPlot(fileList):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     
     fig = plt.figure(1)
     plt.clf()
@@ -4503,7 +4505,7 @@ def faintPlotMulti(fileList, renorm=0, like=0, ylo=1e-6, yhi=0.01):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     
     colour = 'wkbgrymckbgrymc'
     ls = ('--', '-', '-.', ':')
@@ -4517,15 +4519,15 @@ def faintPlotMulti(fileList, renorm=0, like=0, ylo=1e-6, yhi=0.01):
         if ifile == 0:
             lf0 = lf
         else:
-            print('Delta alpha = ', lf.schec['alpha'][0] - lf0.schec['alpha'][0])
-            print('Delta Mstar = ', lf.schec['Mstar'][0] - lf0.schec['Mstar'][0])
-            print('Delta phistar = ', lf.schec['phistar'][0] - lf0.schec['phistar'][0])
+            print 'Delta alpha = ', lf.schec['alpha'][0] - lf0.schec['alpha'][0]
+            print 'Delta Mstar = ', lf.schec['Mstar'][0] - lf0.schec['Mstar'][0]
+            print 'Delta phistar = ', lf.schec['phistar'][0] - lf0.schec['phistar'][0]
 
         Mmin = lf.par['absMin']
         Mmax = lf.par['absMax']
         phi = lf.phiList[0]
         phisum = 0
-        for ibin in range(phi.nbin):
+        for ibin in xrange(phi.nbin):
             r1 = 10**(0.2*(lf.par['appMin'] - phi.Mav[ibin]))
             r2 = 10**(0.2*(lf.par['appMax'] - phi.Mav[ibin]))
             Vm = r2*r2*r2 - r1*r1*r1
@@ -4536,7 +4538,7 @@ def faintPlotMulti(fileList, renorm=0, like=0, ylo=1e-6, yhi=0.01):
         else:
             if renorm:
                 scale = phisum0/phisum
-                print(scale)
+                print scale
                 phi.swml *= scale
                 phi.sty *= scale
         
@@ -4609,7 +4611,7 @@ def faintPlotResid(fileList, ylo=0.0, yhi=2.0):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     
     colour = 'kbgrymc'
     fig = plt.figure(1)
@@ -4649,7 +4651,7 @@ def lfAv(fileList):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     nest = len(fileList)
     
     alpha = []
@@ -4712,13 +4714,13 @@ def lfAv(fileList):
         f.close()
         iest += 1
         
-    print('alpha ', np.mean(alpha), np.std(alpha))
-    print('   M* ', np.mean(Mstar), np.std(Mstar))
-    print('    Q ', np.mean(Q), np.std(Q))
-    print('    P ', np.mean(P), np.std(P))
-    print(' phi* ', np.mean(phistar), np.std(phistar))
-    print('   ld ', np.mean(ld), np.std(ld))
-    print('  ld0 ', np.mean(ld0), np.std(ld0))
+    print 'alpha ', np.mean(alpha), np.std(alpha)
+    print '   M* ', np.mean(Mstar), np.std(Mstar)
+    print '    Q ', np.mean(Q), np.std(Q)
+    print '    P ', np.mean(P), np.std(P)
+    print ' phi* ', np.mean(phistar), np.std(phistar)
+    print '   ld ', np.mean(ld), np.std(ld)
+    print '  ld0 ', np.mean(ld0), np.std(ld0)
     
     fig = plt.figure(1)
     plt.clf()
@@ -4787,7 +4789,7 @@ def lfAvFaint(fileList, sim_schec=None):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     nest = len(fileList)
     
     alpha = []
@@ -4839,11 +4841,11 @@ def lfAvFaint(fileList, sim_schec=None):
         f.close()
         iest += 1
         
-    print('alpha ', np.mean(alpha), np.std(alpha))
-    print('   M* ', np.mean(Mstar), np.std(Mstar))
-    print('    Q ', np.mean(Q), np.std(Q))
-    print('    P ', np.mean(P), np.std(P))
-    print(' phi* ', np.mean(phistar), np.std(phistar))
+    print 'alpha ', np.mean(alpha), np.std(alpha)
+    print '   M* ', np.mean(Mstar), np.std(Mstar)
+    print '    Q ', np.mean(Q), np.std(Q)
+    print '    P ', np.mean(P), np.std(P)
+    print ' phi* ', np.mean(phistar), np.std(phistar)
     
     plot = plotWindow()
     plot.window()
@@ -4902,7 +4904,7 @@ def lumDensPlot(fileList='lf_ev8_??_jackErrs.dat'):
     
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
     nest = len(fileList)
 ##     rhomin = [0.08, 0.08, 0.08, 0.08, 0.08]
 ##     rhomax = [7, 7, 7, 7, 7]
@@ -5109,7 +5111,7 @@ def likePlotEv(iband):
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
 
     amlimits = ((-1.5, 0.1, -18.4, -17.1),
                 (-1.5, -0.3, -19.8, -19.2),
@@ -5207,7 +5209,7 @@ def likePlotAM():
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
 
     amlimits = ((-1.58, 0.1, -18.4, -17.1),
                 (-1.58, -0.3, -19.8, -19.2),
@@ -5293,7 +5295,7 @@ def likePlotQP():
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
     
     qplimits = ((2, 7.5, -11, 7),
                 (-1, 4.5, -5.5, 4),
@@ -5397,7 +5399,7 @@ def likePlot(inFile):
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
     fig = plt.figure(1)
     plot = plotWindow(3,2)
 
@@ -5428,8 +5430,8 @@ def likePlot(inFile):
             yopt = ymin + (iy+0.5)*dy
             Lopt = like[ix,iy]
             if Lopt > maxLike:
-                print('higher likelihood like ', Lopt, ' at ', xopt, yopt)
-            print(line)
+                print 'higher likelihood like ', Lopt, ' at ', xopt, yopt
+            print line
             
             idx = like < -1e9
             like[idx] = None
@@ -5480,13 +5482,13 @@ def likePlotMulti(fileList, dp=0, smooth=0):
         ncol = 2
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     plotFile = 'like_faint.eps'
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
 
     tickxmajor = [0.5, 0.5, 0.5, 1.0, 1.0, 0.5]
     tickxminor = [0.1, 0.1, 0.1, 0.2, 0.2, 0.1]
@@ -5556,12 +5558,12 @@ def likePlotComp(fileList):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     prob = 0.05
     nu = 2
     chisq = scipy.special.chdtri(nu, prob)
-    print('delta chisq = ', chisq)
+    print 'delta chisq = ', chisq
 
     colour = 'kbgrcm'
     plt.clf()
@@ -5608,7 +5610,7 @@ def parPlotDPMulti(fileList='lf_dp_r?_b???.dat'):
 
     if len(fileList[0]) == 1:
         fileList = glob.glob(fileList)
-    print(fileList)
+    print fileList
 
     plotFile = 'par_dp.eps'
 
@@ -5677,9 +5679,9 @@ def parPlotDPMulti(fileList='lf_dp_r?_b???.dat'):
     plt.savefig(plotFile, bbox_inches='tight')
     
     
-def schecFit(M, phi, phiErr, xxx_todo_changeme, afix=False, likeCont=False):
+def schecFit(M, phi, phiErr, (alpha, Mstar, lpstar), afix=False, likeCont=False):
     """Least-squares Schechter fn fit to binned estimate."""
-    (alpha, Mstar, lpstar) = xxx_todo_changeme
+
     prob = 0.32
     nbin = len(phiErr > 0)
     if afix:
@@ -5687,12 +5689,12 @@ def schecFit(M, phi, phiErr, xxx_todo_changeme, afix=False, likeCont=False):
     else:
         nu = nbin - 3
     dchisq = scipy.special.chdtri(nu, prob)
-    print(nu, dchisq)
+    print nu, dchisq
 
     if afix:
         x0 = [Mstar, lpstar]
         res = scipy.optimize.fmin(
-            lambda Mstar, lpstar, alpha, M, phi, phiErr:
+            lambda (Mstar, lpstar), alpha, M, phi, phiErr:
             schecResid((alpha, Mstar, lpstar), M, phi, phiErr),
             x0, (alpha, M, phi, phiErr),
             xtol=0.001, ftol=0.001, full_output=1, disp=0)
@@ -5710,33 +5712,33 @@ def schecFit(M, phi, phiErr, xxx_todo_changeme, afix=False, likeCont=False):
         alpha = xopt[0]
         Mstar = xopt[1]
         lpstar = xopt[2]
-        alphaErr = likeErr(lambda Mstar, lpstar, alpha, M, phi, phiErr:
+        alphaErr = likeErr(lambda (Mstar, lpstar), alpha, M, phi, phiErr:
                            schecResid((alpha, Mstar, lpstar), M, phi, phiErr),
                            alpha, limits=(alpha-5, alpha+5),
                            marg=(Mstar, lpstar), args=(M, phi, phiErr),
                            nsig=2*dchisq)
-        print('  alpha %6.2f - %6.2f + %6.2f' % (alpha, alphaErr[0], alphaErr[1]))
+        print '  alpha %6.2f - %6.2f + %6.2f' % (alpha, alphaErr[0], alphaErr[1])
         
-    MstarErr = likeErr(lambda lpstar, Mstar, alpha, M, phi, phiErr:
+    MstarErr = likeErr(lambda (lpstar), Mstar, alpha, M, phi, phiErr:
                        schecResid((alpha, Mstar, lpstar), M, phi, phiErr),
                        Mstar, limits=(Mstar-5, Mstar+5),
                        marg=(lpstar), args=(alpha, M, phi, phiErr),
                        nsig=2*dchisq)
-    lpstarErr = likeErr(lambda Mstar, lpstar, alpha, M, phi, phiErr:
+    lpstarErr = likeErr(lambda (Mstar), lpstar, alpha, M, phi, phiErr:
                         schecResid((alpha, Mstar, lpstar), M, phi, phiErr),
                         lpstar, limits=(lpstar-5, lpstar+5),
                         marg=(Mstar), args=(alpha, M, phi, phiErr),
                         nsig=2*dchisq)
     
-    print('  Mstar %6.2f - %6.2f + %6.2f' % (Mstar, MstarErr[0], MstarErr[1]))
-    print('lpstar %6.4f - %6.4f + %6.4f' % (lpstar, lpstarErr[0], lpstarErr[1]))
+    print '  Mstar %6.2f - %6.2f + %6.2f' % (Mstar, MstarErr[0], MstarErr[1])
+    print 'lpstar %6.4f - %6.4f + %6.4f' % (lpstar, lpstarErr[0], lpstarErr[1])
 
     if likeCont:
-        print("M*, phi* 2-sigma contours ...")
+        print "M*, phi* 2-sigma contours ..."
         prob = 0.05
         nu = len(phiErr > 0) # no free parameters
         dchisq = scipy.special.chdtri(nu, prob)
-        print(nu, dchisq)
+        print nu, dchisq
         nstep = 32
         chi2map = np.zeros([nstep, nstep])
 
@@ -5761,9 +5763,9 @@ def schecFit(M, phi, phiErr, xxx_todo_changeme, afix=False, likeCont=False):
     else:
         return (alpha, alphaErr, Mstar, MstarErr, lpstar, lpstarErr, chi2, nu)
         
-def schecResid(xxx_todo_changeme1, M, phi, phiErr):
+def schecResid((alpha, Mstar, lpstar), M, phi, phiErr):
     """Return chi^2 residual between binned phi estimate and Schechter fit."""
-    (alpha, Mstar, lpstar) = xxx_todo_changeme1
+
     fc = 0
     for ibin in range(len(M)):
         if phiErr[ibin] > 0:
@@ -5787,9 +5789,9 @@ def saundFit(M, phi, phiErr, alpha, Mstar, sigma, lpstar):
     lpstar = xopt[3]
     return (alpha, Mstar, sigma, lpstar)
         
-def saundResid(xxx_todo_changeme2, M, phi, phiErr):
+def saundResid((alpha, Mstar, sigma, lpstar), M, phi, phiErr):
     """Return chi^2 residual between binned phi estimate and Saunders fit."""
-    (alpha, Mstar, sigma, lpstar) = xxx_todo_changeme2
+
     fc = 0
     phistar = 10**lpstar
     for ibin in range(len(M)):
@@ -5872,7 +5874,7 @@ def test():
     """Function to test bits of code"""
         
     a = np.random.randint(0, 10, 10)
-    print(a)
+    print a
     
 #------------------------------------------------------------------------------
 # Misc plots for paper
@@ -5922,7 +5924,7 @@ def colourMag(file='kcorrz.fits', imag=2, icol=(1,2),
     cut = colourCut(mag)
     nb = (col < cut).sum()
     nr = (col > cut).sum()
-    print('nblue, nred = ', nb, nr)
+    print 'nblue, nred = ', nb, nr
 
     zlims = [[0.002, 0.1], [0.1, 0.2], [0.2, 0.3], [0.3, 0.5]]
     fig = plt.figure(1)
@@ -5947,7 +5949,7 @@ def colourMag(file='kcorrz.fits', imag=2, icol=(1,2),
         ax.text(0.6, 0.9, title, transform = ax.transAxes)
         nb = (col[idx] < cut[idx]).sum()
         nr = (col[idx] > cut[idx]).sum()
-        print(zlims[iz], ' nblue, nred = ', nb, nr)
+        print zlims[iz], ' nblue, nred = ', nb, nr
     plt.draw()
 
     # Output faint-end red galaxies for eyeballing
@@ -5957,8 +5959,8 @@ def colourMag(file='kcorrz.fits', imag=2, icol=(1,2),
     dec = dec[idx]
 
     file = open('faint_red.txt', 'w')
-    for i in range(len(ra)):
-        print(cataid[i], ra[i], dec[i], file=file)
+    for i in xrange(len(ra)):
+        print >> file, cataid[i], ra[i], dec[i]
     file.close()
     
 def completeness(file='kcorr.fits', dZ=0.1, dM=0.1, nbin=50, iplot=100):
@@ -5991,7 +5993,7 @@ def completeness(file='kcorr.fits', dZ=0.1, dM=0.1, nbin=50, iplot=100):
     m = appMag[idx]
     
     ngal = len(Z)
-    galit = range(ngal)
+    galit = xrange(ngal)
     
     fig = plt.figure(1)
     plt.clf()
@@ -6026,8 +6028,9 @@ def completeness(file='kcorr.fits', dZ=0.1, dM=0.1, nbin=50, iplot=100):
 
     plt.draw()
 
-    r = np.array([float(len(np.where((Mlo1[i] <= M) * (M <= M[i]) *
-                                  (Zlo1[i] <= Z) * (Z <= Z[i]))[0])) for i in galit])
+    r = np.array(map(lambda i:
+                     float(len(np.where((Mlo1[i] <= M) * (M <= M[i]) *
+                                  (Zlo1[i] <= Z) * (Z <= Z[i]))[0])), galit))
 
     nbin = 20
     Tc = np.zeros(nbin)
@@ -6038,7 +6041,7 @@ def completeness(file='kcorr.fits', dZ=0.1, dM=0.1, nbin=50, iplot=100):
         ntest = len(idx)
         Mt = M[idx]
         Zt = Z[idx]
-        galit = range(ntest)
+        galit = xrange(ntest)
         
         # M, Z limits for regions S2 & S4
         Mhi2 = mfs - Zt
@@ -6047,10 +6050,12 @@ def completeness(file='kcorr.fits', dZ=0.1, dM=0.1, nbin=50, iplot=100):
         Zhi4 = mfs - Mt
         Mlo4 = Mlo3[idx]
 
-        n = np.array([float(len(np.where((Mlo1[idx[i]] <= Mt) *
+        n = np.array(map(lambda i:
+                         float(len(np.where((Mlo1[idx[i]] <= Mt) *
                                             (Mt <= Mhi2[i]) *
                                             (Zlo2[i] <= Zt) *
-                                            (Zt <= Zt[i]))[0])) for i in galit])
+                                            (Zt <= Zt[i]))[0])),
+                         galit))
 
         zeta = r[idx]/(n + 1)
         var_zeta = (n-1)/(n+1)/12

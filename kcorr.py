@@ -9,19 +9,19 @@ import pdb
 #              'vst_u', 'vst_g', 'vst_r', 'vst_i',
 #              'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
 #              'wise_w1', 'wise_w2']
-responses = ['galex_FUV', 'galex_NUV',
-             'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
-             'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
-             'wise_w1', 'wise_w2']
-fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
-          'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
-nband = len(responses)
-
 
 def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
               zrange=[0, 2], z0=0, pdeg=4, ntest=5000):
     """K-corrections for GAMA-KiDS-VIKING (GKV) catalogues."""
     
+    responses = ['galex_FUV', 'galex_NUV',
+                 'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
+                 'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
+                 'wise_w1', 'wise_w2']
+    fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
+              'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
+    nband = len(responses)
+
     kc = Kcorrect(responses)
 
     intbl = Table.read(infile)
