@@ -10,17 +10,23 @@ import pdb
 #              'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
 #              'wise_w1', 'wise_w2']
 
-def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
-              zrange=[0, 2], z0=0, pdeg=4, ntest=5000):
+def kcorr_gkv(infile='gkvScienceCatv02.fits', nband=13,
+              outfile='kcorr_test.fits',
+              zrange=[0, 1], z0=0, pdeg=4, ntest=5000):
     """K-corrections for GAMA-KiDS-VIKING (GKV) catalogues."""
-    
-    responses = ['galex_FUV', 'galex_NUV',
-                 'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
-                 'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
-                 'wise_w1', 'wise_w2']
-    fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
-              'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
-    nband = len(responses)
+
+    if nband == 13:
+        responses = ['galex_FUV', 'galex_NUV',
+                     'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
+                     'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
+                     'wise_w1', 'wise_w2']
+        fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
+                  'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
+        rband = 4
+    else:
+        responses = ['sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0', 'vista_z']
+        fnames = ['ut', 'gt', 'rt', 'it', 'Zt']
+        rband = 2
 
     kc = Kcorrect(responses)
 
@@ -90,12 +96,38 @@ def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
     axes[1, 0].set_ylabel('K-correction')
     plt.show()
 
+    # Compare r-band K-corrections using mean and median coeffs
+    nz = 100
+    redshifts = np.linspace(*zrange, nz)
+    mean_coeffs = np.mean(coeffs, axis=0)
+    median_coeffs = np.median(coeffs, axis=0)
+    kmedian = [np.median([x[0] for x in coeffs]), np.median([x[1] for x in coeffs]), np.median([x[2] for x in coeffs]), np.median([x[3] for x in coeffs]), np.median([x[4] for x in coeffs])]
+    print('mean coeffs:', mean_coeffs)
+    print('median coeffs:', median_coeffs)
+    print('Adrien median):', kmedian)
+
+    plt.clf()
+    plt.scatter(redshift, k[:, rband], s=0.1)
+
+    kz = kc.kcorrect(redshift=redshifts,
+                     coeffs=np.broadcast_to(mean_coeffs, (nz, 5)),
+                     band_shift=z0)[:, rband]
+    plt.plot(redshifts, kz, label='Mean coeffs')
+    kz = kc.kcorrect(redshift=redshifts,
+                     coeffs=np.broadcast_to(median_coeffs, (nz, 5)),
+                     band_shift=z0)[:, rband]
+    plt.plot(redshifts, kz, label='Median coeffs')
+    
+    plt.legend()
+    plt.xlabel('Redshift')
+    plt.ylabel('K_r(z)')
+    plt.show()
+    pdb.set_trace()
+    
     # Polynomial fits to reconstructed r-band K-correction K_r(z)
     # We fit K + 2.5 log10(1+z0) to z-z0 with constant coefficient set at zero,
     # and then set coef[0] = -2.5 log10(1+z0), so that resulting fits pass
     # through (z0, -2.5 log10(1+z0))
-    nz = 100
-    redshifts = np.linspace(*zrange, nz)
     pcoeffs = np.zeros((ngal, pdeg+1))
     pcoeffs[:, 0] = -2.5*np.log10(1+z0)
     nplot = 10
@@ -104,20 +136,30 @@ def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr_test.fits',
     ax = plt.subplot(111)
     plt.xlabel('Redshift')
     plt.ylabel('K_r(z)')
-    iband = 4
     deg = np.arange(1, pdeg+1)
     for igal in range(ngal):
         kz = kc.kcorrect(redshift=redshifts,
                          coeffs=np.broadcast_to(coeffs[igal, :], (nz, 5)),
                          band_shift=z0)
-        pc = Polynomial.fit(redshifts-z0, kz[:, iband] + 2.5*np.log10(1+z0),
+        pc = Polynomial.fit(redshifts-z0, kz[:, rband] + 2.5*np.log10(1+z0),
                             deg=deg, domain=zrange, window=zrange)
         pcoeffs[igal, 1:] = pc.coef[1:]
         if (igal < nplot):
             fit = pc(redshifts-z0) - 2.5*np.log10(1+z0)
             color = next(ax._get_lines.prop_cycler)['color']
-            plt.scatter(redshifts, kz[:, iband], s=1, color=color)
+            plt.scatter(redshifts, kz[:, rband], s=1, color=color)
             plt.plot(redshifts, fit, '-', color=color)
     outtbl = Table([intbl['RAcen'], intbl['Deccen'], redshift, k, pcoeffs], names=('RA', 'DEC', 'z', 'Kcorr', 'pcoeffs'))
     outtbl.write(outfile, overwrite=True)
     plt.show()
+
+
+def par_to_dat(infile, outfile):
+    """Convert response function files from .par to .dat format.
+    Assumes that .par files 5 lines describing structure before data starts
+    on line 6."""
+
+    dat = np.loadtxt(infile, skiprows=5, usecols=(1, 2))
+    np.savetxt(outfile, dat, fmt=(('| %9.4f', '%8.6f')), delimiter=' | ',
+               newline=' |\n', header='|  lambda   |   pass  ', comments='')
+    

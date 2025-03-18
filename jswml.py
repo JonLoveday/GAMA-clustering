@@ -122,7 +122,8 @@ den_mag_label = r'$\phi(M)\ (h^3 {\rm Mpc}^{-3} {\rm mag}^{-1})$'
 den_mass_label = r'$\phi(M)\ (h^3 {\rm Mpc}^{-3} {\rm dex}^{-1})$'
 
 # Directory to save plots
-plot_dir = os.environ['HOME'] + '/Documents/tex/papers/gama/jswml/'
+# plot_dir = os.environ['HOME'] + '/Documents/tex/papers/gama/jswml/'
+plot_dir = './'
 
 #------------------------------------------------------------------------------
 # Driver routines
@@ -3551,11 +3552,8 @@ def delta_plot(param_list, plot_file=None):
     for param in param_list:
         infile = param[0]
         label = param[1]
-
-        f = open(infile, 'r')
-        dat = pickle.load(f)
-        f.close()
-
+        dat = pickle.load(open(infile, 'rb'), encoding='latin1')
+        print('Q, P =', dat['Q'], dat['P'])
         try:
             ax = axes[ip]
         except:
@@ -3574,7 +3572,7 @@ def delta_plot(param_list, plot_file=None):
         if ip == nplot/2:
             ax.set_ylabel(r'$\Delta(z)$')
 #        ax.set_ylim(0.3, 1.7)
-        ax.semilogy(basey=10, nonposy='clip')
+        ax.semilogy(nonpositive='clip')
         ax.set_ylim(0.3, 10.0)
         ax.text(0.05, 0.9, label, transform = ax.transAxes)
         # ax.text(0.95, 0.15, r'$Q = {:4.2f}$'.format(dat['Q']), 
@@ -3585,7 +3583,7 @@ def delta_plot(param_list, plot_file=None):
     ax.set_xlabel(r'Redshift $z$')          
     fig.subplots_adjust(hspace=0)
 
-    plt.draw()
+    plt.show()
 
     if plot_file:
         fig = plt.gcf()

@@ -1,7 +1,6 @@
 # Useful utilities
 
-from __future__ import division
-
+import glob
 import math
 from matplotlib.projections import PolarAxes
 from matplotlib.transforms import Affine2D
@@ -918,3 +917,12 @@ def cone_plot(data, z_limits=[0, 0.5],
     if plot_file:
         plt.savefig(plot_file, dpi=my_dpi, bbox_inches='tight')
     plt.show()
+
+
+def nb_to_pdf():
+    nbfiles = glob.glob('*.ipynb')
+    for nb in nbfiles:
+        try:
+            subprocess.run(['jupyter', 'nbconvert', '--to', 'pdf', nb], check=True)
+        except subprocess.CalledProcessError:
+            print('*** Error converting', nb)

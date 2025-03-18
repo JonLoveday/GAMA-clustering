@@ -8,11 +8,14 @@ import os
 import pdb
 import scipy.optimize
 import scipy.stats
+from sklearn.neighbors import NearestNeighbors
 
 from astropy.coordinates import SkyCoord
 from astropy.cosmology import FlatLambdaCDM
 from astropy import table
 from astropy.table import Table, join
+from kcorrect.kcorrect import Kcorrect
+
 #from pymoc import MOC
 #import pymoc.util.catalog
 #import pymoc.util.plot
@@ -57,17 +60,88 @@ mock_pcoeff = (0.2085, 1.0226, 0.5237, 3.5902, 2.3843)
 
 
 class Kcorr():
-    """K-correction from polynomial fit."""
+    """Fit and evaluate K-corrections."""
 
-    def __init__(self, z0=0, kcoeff=None):
+    def __init__(self, resp_in, resp_out, bands_out, redshift, flux, flux_err, z0=0,
+                 pord=4, clr_def=[3, 4], n_neighbors=6):
         self.z0 = z0
-        self.default_kcoeff = kcoeff
+        ivar = flux_err**-2
 
-    def __call__(self, z, kcoeff=None):
-        if kcoeff is None:
-            kcoeff = self.default_kcoeff
-        return np.polynomial.polynomial.polyval(z - self.z0, kcoeff)
+        # For missing bands, set flux and ivar both to zero
+        # fix = (flux > 1e10) + (flux < -900) + (flux_err <= 0)
+        fix = (flux_err <= 0)
+        flux[fix] = 0
+        ivar[fix] = 0
+        nfix = len(flux[fix])
+        print('Fixed ', len(flux[fix]), 'missing fluxes')
 
+        # Fit SED coeffs
+        kc = Kcorrect(responses=resp_in)
+        coeffs = kc.fit_coeffs(redshift, flux, ivar)
+
+        # For galaxies that couldn't be fit, use average SED of galaxies
+        # close in redshift and colour
+        clr = flux[:, clr_def[0]]/flux[:, clr_def[1]]
+        badidxs = np.nonzero(coeffs.sum(axis=-1) == 0)[0]
+        nbad = len(badidxs)
+        if nbad > 0:
+            print('Replacing', nbad, 'bad fits with mean')
+            knn = NearestNeighbors(n_neighbors=n_neighbors)
+            X = np.concatenate([redshift[:, None], clr[:, None]], axis=1)
+            knn.fit(X)
+            plt.clf()
+            ax = plt.subplot(111)
+            plt.xlabel('Band')
+            plt.ylabel('Flux')
+            close = knn.kneighbors(X[badidxs], return_distance=False)
+            for ibad, bad in zip(range(len(badidxs)), badidxs):
+                # np.nonzero((abs(redshift - redshift[ibad]) < ztol) *
+                #                     (clr_tol[0] < clr[ibad]/clr) *
+                #                     (clr[ibad]/clr < clr_tol[0]))[0]
+                flux_mean = flux[close[ibad][1:], :].mean(axis=0)
+                ivar_mean = ivar[close[ibad][1:], :].sum(axis=0)
+                coeffs[bad, :] = kc.fit_coeffs(redshift[bad], flux_mean, ivar_mean)
+                color = next(ax._get_lines.prop_cycler)['color']
+                plt.errorbar(range(len(resp_in)), flux[ibad, :], yerr=flux_err[ibad, :], color=color)
+                plt.plot(range(len(resp_in)), flux_mean, color=color)
+            plt.show()
+
+        mean_coeffs = np.mean(coeffs, axis=0)
+        median_coeffs = np.median(coeffs, axis=0)
+
+        # Calculate and plot the k-corrections
+        nzp = 50
+        kc = Kcorrect(responses=resp_out)
+        k = kc.kcorrect(redshift=redshift, coeffs=coeffs, band_shift=z0)
+        nrow, ncol = util.two_factors(len(resp_out), landscape=True)
+        zp = np.linspace(np.min(redshift), np.max(redshift), nzp)
+        fig, axes = plt.subplots(nrow, ncol, sharex=True, sharey=True)
+        fig.subplots_adjust(hspace=0, wspace=0)
+        for iband in range(len(resp_out)):
+            ax = axes.flatten()[iband]
+            ax.scatter(redshift, k[:, iband], s=0.1)
+            kc_mean = kc.kcorrect(redshift=zp, coeffs=np.broadcast_to(mean_coeffs, (nzp, 5)), band_shift=z0)[:, iband]
+            ax.plot(zp, kc_mean, color='r')
+            kc_median = kc.kcorrect(redshift=zp, coeffs=np.broadcast_to(median_coeffs, (nzp, 5)), band_shift=z0)[:, iband]
+            ax.plot(zp, kc_median, color='g')
+            ax.text(0.5, 0.8, bands_out[iband], transform=ax.transAxes)
+        axes[2, 2].set_xlabel('Redshift')
+        axes[1, 0].set_ylabel('K-correction')
+        plt.show()
+
+        self.kc = kc
+        self.kcorr = k
+        self.coeffs = coeffs
+        self.mean_coeffs = mean_coeffs
+        self.median_coeffs = median_coeffs
+
+    def __call__(self, z, igal=-1):
+        if igal >= 0:
+            return self.kc.kcorrect(redshift=z, coeffs=self.coeffs[igal, :],
+                                   band_shift=self.z0)
+        else:
+            return self.kc.kcorrect(redshift=z, coeffs=self.median_coeffs,
+                                   band_shift=z0)
 
 class Ecorr():
     """Luminosity e-correction."""
@@ -179,6 +253,15 @@ class GalSample():
         if nbad > 0:
             t[coeff][bad] = self.kmean
             print(nbad, 'missing/bad k-corrections replaced with mean')
+
+    def abs_calc(self):
+        """Calculate and save absolute mags."""
+        self.absmag = self.appmag - self.cosmo.dist_mod(seld.z) - self.kcorr.kcorr + ecorr(z)
+
+    def app_calc(self, z, igal):
+        """Return apparent magnitude galaxy igal would have at redshift z."""
+        return (self.absmag[igal, :] + self.cosmo.dist_mod(z) + self.kcorr(z, igal) -
+                self.ecorr(z))
 
     def abs_mags(self, magname):
         """Return absolute magnitudes corresponding to magname."""
@@ -344,7 +427,7 @@ class GalSample():
         d_perp = (r_mod - i_mod) - (g_mod - r_mod)/8
         sel = ((t['Z'] >= self.zlimits[0]) * (t['Z'] < self.zlimits[1]) *
                (i_cmod >= 17.5) * (i_cmod < 19.9) * (i_fib2 < 21.5) *
-               (i_cmod < 19.86 + 1.6(d_perp - 0.8)) * (d_perp > 0.55))
+               (i_cmod < 19.86 + 1.6*(d_perp - 0.8)) * (d_perp > 0.55))
 
         t = t[sel]
         nsel = len(t)
