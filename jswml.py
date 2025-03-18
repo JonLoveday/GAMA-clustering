@@ -2790,7 +2790,7 @@ def plot_lfs_colour(temp_list=('lf_r_petro_{}.dat','lf_r_sersic_{}.dat'),
         schec_comp = schec_comps[colour]
         panels.append((files, llabels, comp, schec_comp, plabel))
 
-    plot1d(panels, xlimits=(-25, -12), ylimits=(2e-8, 1), 
+    plot1d_old(panels, xlimits=(-25, -12), ylimits=(2e-8, 1), 
            xlab=mag_petro_label, ylab=den_mag_label, plot_file=plot_file)
 
 def plot_lfs_morph(template='lf_lfchi_{}.dat', plot_file='lf_r.pdf'):
@@ -3329,9 +3329,7 @@ def plot1d_old(panels, xlimits=(-24, -12), ylimits=(2e-7, 1),
         symbols = itertools.cycle(sym_list)
         colours = itertools.cycle(clr_list)
         for infile in files:
-            f = open(infile, 'r')
-            dat = pickle.load(f)
-            f.close()
+            dat = pickle.load(open(infile, 'rb'), encoding='latin1')  # to read Python2 pickle format
             sym = next(symbols)
             clr = next(colours)
             cmp = dat['comp']
@@ -3353,7 +3351,7 @@ def plot1d_old(panels, xlimits=(-24, -12), ylimits=(2e-7, 1),
         if ip == 0:
             ax.legend(loc=0)
         ax.axis(xlimits + ylimits)
-        ax.semilogy(basey=10, nonposy='clip')
+        ax.semilogy(nonpositive='clip')
         if schec_label:
             ax.text(0.2, 0.4, r'$\alpha = {:4.2f} \pm {:4.2f}$'.format(
                 alpha, np.mean(alphaErr)),
@@ -3367,7 +3365,7 @@ def plot1d_old(panels, xlimits=(-24, -12), ylimits=(2e-7, 1),
             ax.text(0.2, 0.1, r'$\chi^2/\nu = {:4.2f}$'.format(chi2/nu),
             transform = ax.transAxes)
         ip += 1
-    plt.draw()
+    plt.show()
 
     if plot_file:
         fig = plt.gcf()
@@ -3436,7 +3434,7 @@ def plot1d(panels, plabels, xlimits=(-24, -12), ylimits=(2e-7, 1),
         ax.axis(xlimits + ylimits)
         ax.semilogy(basey=10, nonposy='clip')
         ip += 1
-    plt.draw()
+    plt.show()
 
     if plot_file:
         fig = plt.gcf()
@@ -3552,7 +3550,7 @@ def delta_plot(param_list, plot_file=None):
     for param in param_list:
         infile = param[0]
         label = param[1]
-        dat = pickle.load(open(infile, 'rb'), encoding='latin1')
+        dat = pickle.load(open(infile, 'rb'), encoding='latin1')  # to read Python2 pickle format
         print('Q, P =', dat['Q'], dat['P'])
         try:
             ax = axes[ip]
@@ -4694,8 +4692,7 @@ def Blanton2005():
     # Correction for bandpass shift
     delta_M = 2.5*math.log10(1 + par['z0'])
     iband = 2
-    fname = (os.environ['HOME'] + 
-             '/Documents/Research/LFdata/blanton2005/r.dat')
+    fname = ('/Users/loveday/OneDrive/Research/LFdata/blanton2005/r.dat')
     data = np.loadtxt(fname)
     M = data[:,0] + delta_M
     phi = data[:,1]
