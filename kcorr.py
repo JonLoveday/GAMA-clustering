@@ -160,6 +160,10 @@ def par_to_dat(infile, outfile):
     on line 6."""
 
     dat = np.loadtxt(infile, skiprows=5, usecols=(1, 2))
-    np.savetxt(outfile, dat, fmt=(('| %9.4f', '%8.6f')), delimiter=' | ',
-               newline=' |\n', header='|  lambda   |   pass  ', comments='')
+    np.savetxt(outfile, dat, fmt=(('| %7.1f', '   %8.6f')), delimiter=' | ',
+               newline=' |\n', header='| lambda  |    pass    ', comments='')
     
+def plot_resp(infile):
+    dat = np.loadtxt(infile, skiprows=1, delimiter='|', usecols=(1, 2))
+    plt.plot(dat[:,0], dat[:,1])
+    plt.show()

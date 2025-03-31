@@ -549,7 +549,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
            Pbins=(-0.5, 4.0, 45), Qbins=(0.0, 1.5, 30),
            P_prior=(2, 1), Q_prior=(1, 1),
            idebug=1, method='lfchi', err_type='jack', use_mp=False, opt=True,
-           lf_est='kde'):
+           lf_est='weight'):
     """Fit evolution parameters and radial overdensities.
     Searches over both Q and P values,
     rather than trying to estimate P from Cole eqn (25).
@@ -2228,10 +2228,11 @@ def z_comp(r_fibre):
 #------------------------------------------------------------------------------
 
 
-def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
+def simcat(infile='../auto/kcorrz01.fits', outfile='jswml_sim.fits',
            alpha=-1.23, Mstar=-20.70, phistar=0.01, Q=0.7, P=1.8, chi2max=10,
            Mrange=(-24, -12), mrange=(10, 19.8), zrange=(0.002, 0.65), nz=65,
-           fbad=0.03, do_kcorr=True, area_fac=1.0, nblock=500000, schec_nz=0):
+           fbad=0.03, do_kcorr=True, area_fac=1.0, nblock=500000, schec_nz=0,
+           resample=1):
     """Generate test data for jswml - see Cole (2011) Sec 5."""
 
     def gam_dv(z):
@@ -2280,7 +2281,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     par['z0'] = header['Z0']
     area_dg2 = area_fac*header['AREA']
     area = area_dg2*(math.pi/180.0)*(math.pi/180.0)
-    cosmo = util.CosmoLookup(H0, omega_l, zrange)
+    cosmo = util.CosmoLookup(H0, omega_l, zrange, P=P)
 #    rmin, rmax = cosmo.dm(zrange[0]), cosmo.dm(zrange[1])
 
     if do_kcorr:
@@ -2294,7 +2295,8 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
         tbdata = tbdata[sel]
         nk = len(tbdata)
         ra_gal = tbdata.field('ra')
-        pc = tbdata.field('pcoeff_r').transpose()
+        # pc = tbdata.field('pcoeff_r').transpose()
+        pc = tbdata.field('pcoeff_r')
         pdim = (pc.shape)[1]  # number of coeffs
         hdulist.close()
 
@@ -2321,6 +2323,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
         pdim = 5
         pc = np.zeros((nk, pdim))
         pc_med = np.zeros(pdim)
+        kmin, kmax = 0, 0
 
     # zbins = np.linspace(zrange[0], zrange[1], nz+1)
     # V_int = area/3.0 * cosmo.dm(zbins)**3
@@ -2401,36 +2404,28 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     V = np.diff(V_int)
     zcen = zbins[:-1] + 0.5 * (zbins[1]-zbins[0])
     zhist, bin_edges = np.histogram(z_out, bins=zbins)
-    hist_gen = np.zeros(nz)
-    # mapp_samp = []
-    # Mabs_samp = []
-    # z_samp = []
-    # ra_samp = []
-    # kc_samp = []
-    # pc_samp = []
-    samp_list = []
-    nsamp = 0
-    print('iz  delta  zhist  nsel')
-    for iz in range(nz):
-        zlo = zbins[iz]
-        zhi = zbins[iz+1]
-        delta = np.random.normal(0.0, math.sqrt(J3/V[iz]))
-        nsel = int(round((1+delta) * zhist[iz]))
-        hist_gen[iz] = nsel
-        print(iz, delta, zhist[iz], nsel)
-        if nsel > 0:
-            sel = (zlo <= z_out) * (z_out < zhi)
-            idx = np.where(sel)
-            samp = np.random.randint(0, zhist[iz], nsel)
-            for i in range(nsel):
-                samp_list.append(idx[0][samp[i]])
-                # mapp_samp.append(mapp_out[idx][samp[i]])
-                # Mabs_samp.append(Mabs_out[idx][samp[i]])
-                # z_samp.append(z_out[idx][samp[i]])
-                # ra_samp.append(ra_out[idx][samp[i]])
-                # kc_samp.append(kc_out[idx][samp[i]])
-                # pc_samp.append(pc_out[idx][samp[i]])
-            nsamp += nsel
+    if resample:
+        hist_gen = np.zeros(nz)
+        samp_list = []
+        nsamp = 0
+        print('iz  delta  zhist  nsel')
+        for iz in range(nz):
+            zlo = zbins[iz]
+            zhi = zbins[iz+1]
+            delta = np.random.normal(0.0, math.sqrt(J3/V[iz]))
+            nsel = int(round((1+delta) * zhist[iz]))
+            hist_gen[iz] = nsel
+            print(iz, delta, zhist[iz], nsel)
+            if nsel > 0:
+                sel = (zlo <= z_out) * (z_out < zhi)
+                idx = np.where(sel)
+                samp = np.random.randint(0, zhist[iz], nsel)
+                for i in range(nsel):
+                    samp_list.append(idx[0][samp[i]])
+                nsamp += nsel
+    else:
+        nsamp = len(z_out)
+        samp_list = np.arange(nsamp)
 
     nQ = 4*np.ones(nsamp)
     survey_class = 6*np.ones(nsamp)
@@ -2469,7 +2464,7 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
             fits.Column(name='pcoeff_r', format='{}E'.format(pdim), 
                           array=[pc_out[i, :] for i in samp_list]),
             fits.Column(name='A_r', format='E', array=A_r)]
-    tbhdu = fits.new_table(cols)
+    tbhdu = fits.BinTableHDU.from_columns(cols)
     # Need PyFits 3.1 to add new header parameters in this way
     hdr = tbhdu.header
     hdr['omega_l'] = header['omega_l']
@@ -2480,12 +2475,13 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
     hdr['phistar'] = phistar
     hdr['Q'] = Q
     hdr['P'] = P
-    tbhdu.writeto(outfile, clobber=True)
+    tbhdu.writeto(outfile, overwrite=True)
 
     plt.clf()
     ax = plt.subplot(2, 1, 1)
     ax.plot(zcen, zhist)
-    ax.step(zcen, hist_gen, where='mid')
+    if resample:
+        ax.step(zcen, hist_gen, where='mid')
     ax.set_xlabel('z')
     ax.set_ylabel('N(z)')
     ax = plt.subplot(2, 1, 2)
@@ -2493,13 +2489,13 @@ def simcat(infile='kcorr.fits', outfile='jswml_sim.fits',
             bins=int(4*(Mrange[1] - Mrange[0])), range=(Mrange[0], Mrange[1]))
     ax.set_xlabel('Abs mag M')          
     ax.set_ylabel(r'$N(M)$')    
-    plt.draw()
+    plt.show()
 
-def multisim(infile='kcorrz01.fits', outfile='sim_z01_{}.fits', do_kcorr=True):
+def multisim(outfile='sim_test_{}.fits', Q=0, P=0, do_kcorr=0, resample=0):
     """Generate several simulated catalogues."""
     for i in range(10):
-        simcat(infile, outfile=outfile.format(i), do_kcorr=do_kcorr, 
-               area_fac=1.0)
+        simcat(outfile=outfile.format(i), Q=Q, P=P, do_kcorr=do_kcorr, 
+               resample=resample)
         
 def sim_av(evroot='lf_kde_z01_{}_{}.dat', lfroot='lf_bin_{}_{}.fits', 
            out_file='sim_table.tex', nlo=0, nhi=10):

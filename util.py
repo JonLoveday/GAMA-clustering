@@ -926,3 +926,74 @@ def nb_to_pdf():
             subprocess.run(['jupyter', 'nbconvert', '--to', 'pdf', nb], check=True)
         except subprocess.CalledProcessError:
             print('*** Error converting', nb)
+
+
+def cic_lf(mabs, wt, Mbins):
+    """Cloud-in-cell LF, where weight of a given galaxy is allocated
+    proprtionately to two closest bins;
+    see https://ned.ipac.caltech.edu/level5/Sept19/Springel/paper.pdf.
+    
+    Inputs:
+    mabs: array of absolute magnitudes
+    wt: array of 1/Vmax (and any other) weights
+    Mbins: array of bin edges
+    
+    Returns: hist, phi, err, Mmean, Mmean_wt
+    hist: fractional number of galaxies in each bin
+    phi: the LF
+    err: error
+    """
+
+    nbins = len(Mbins) - 1
+    bin_width = Mbins[1] - Mbins[0]
+    sel = (Mbins[0] <= mabs) * (mabs < Mbins[-1])
+    mabs, wt = mabs[sel], wt[sel]
+    hist, phi = np.zeros(nbins), np.zeros(nbins)
+    pf = (mabs-Mbins[0])/bin_width - 0.5
+    p = np.floor(pf).astype(int)
+    ok = (p >= 0) * (p < nbins-1)
+    pstar = pf[ok] - p[ok]
+    np.add.at(hist, p[ok], (1-pstar))
+    np.add.at(hist, p[ok]+1, pstar)
+    np.add.at(phi, p[ok], (1-pstar)*wt[ok])
+    np.add.at(phi, p[ok]+1, pstar*wt[ok])
+    first = (p < 0)
+    hist[0] += len(wt[first])
+    phi[0] += np.sum(wt[first])
+    last = (p >= nbins-1)
+    hist[nbins-1] += len(wt[last])
+    phi[nbins-1] += np.sum(wt[last])
+    err = phi/hist**0.5
+    return hist, phi, err
+
+
+def lf_pred(Mbins, schec_fun, schec_pars):
+    """Predcted histogram LF from integrated Schechter function."""
+
+    bin_width = Mbins[1] - Mbins[0]
+    Mcen = Mbins[:-1] + 0.5*bin_width
+    nbins = len(Mcen)
+    phi_pred = np.zeros(nbins)
+    for i in range(nbins):
+        phi_pred[i], err = scipy.integrate.quad(schec_fun, Mbins[i], Mbins[i+1], args=schec_pars)
+    phi_pred /= bin_width
+    return phi_pred
+
+
+def cic_lf_pred(Mbins, schec_fun, schec_pars):
+    """Predcted LF using CiC assignment.  This integrates the fitted Schechter function
+    weighted by CiC assignment fraction."""
+
+    bin_width = Mbins[1] - Mbins[0]
+    Mcen = Mbins[:-1] + 0.5*bin_width
+    nbins = len(Mcen)
+    cic_pred = np.zeros(nbins)
+    for i in range(nbins):
+        cic_pred[i], err = scipy.integrate.quad(
+            lambda M: (1 - abs(M - Mcen[i])/bin_width) * schec_fun(M, *schec_pars),
+            max(Mbins[0], Mcen[i]-bin_width), min(Mbins[-1], Mcen[i]+bin_width))
+        if (i==0) or (i==nbins-1):
+            cic_pred[i] /= (7*bin_width/8)
+        else:
+            cic_pred[i] /= bin_width
+    return cic_pred
