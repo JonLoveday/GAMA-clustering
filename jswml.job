@@ -21,6 +21,8 @@
 # Now lets make it an array
 #SBATCH --array=1-10
 
-python
+cd /research/astro/gama/loveday/Data/gama/jswml/sim
+python  << eod
 import jswml
 jswml.ev_fit_sim($SLURM_ARRAY_TASK_ID - 1)
+eod
