@@ -1,0 +1,26 @@
+#!/bin/bash 
+############################################################
+#  This is an example jobscript for running on the Artemis 
+#  Slurm HPC. This asks for 1 core and 4GB of RAM and 2 tasks
+############################################################
+# Name of your job
+#SBATCH -J Basic_array
+#SBATCH -o basic_array."%A_%a".out
+#SBATCH -e basic_array."%A_%a".err
+
+#Slurm Email Job Status
+#SBATCH --mail-user $USER@sussex.ac.uk
+#SBATCH --mail-type=ALL
+
+#Request 5 hours run time
+#SBATCH -t 5:0:0
+
+#SBATCH --mem=4G
+#SBATCH -p general
+
+# Now lets make it an array
+#SBATCH --array=1-10
+
+python
+import jswml
+jswml.ev_fit_sim($SLURM_ARRAY_TASK_ID - 1)

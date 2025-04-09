@@ -171,15 +171,15 @@ def ev_fit_test(infile='gkv', outfile='ev_test_GAMAIII.dat',
            param=param, method=method, kcorr_method=kcorr_method, Mmax=Mmax, idebug=idebug)
 
 
-def ev_fit_sim(infile='jswml_sim.fits', outfile='ev_sim.dat',
-                colour='c', param='R_PETRO', method='lfchi', ev_model='z',
-                Mmax=-12, z0=0.0, kcorr_method='poly', idebug=1):
+def ev_fit_sim(isim=0):
     """Determine ev parameters and density-corrected Vmax for specified sample
     using small number of P, Q bins and no optimization."""
-    par['ev_model'] = ev_model
+    infile = f'sim_test_{isim}.fits'
+    outfile = f'ev_sim_{isim}.fits'
+    par['ev_model'] = 'z'
     par['clean_photom'] = False
     ev_fit(infile, outfile, mlims=(0, 19.65), Pbins=(-1, 1, 5), Qbins=(-1, 1, 5), opt=1,
-           param=param, method=method, kcorr_method=kcorr_method, Mmax=Mmax, idebug=idebug)
+           param='R_PETRO', method='lfchi', kcorr_method='poly', Mmax=-12, idebug=1)
 
 
 def ev_fit_sim_multi(nsim=10):
