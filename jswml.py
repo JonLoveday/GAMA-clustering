@@ -27,7 +27,7 @@ import math
 import mpmath
 import multiprocessing
 import numpy as np
-import pmap
+#import pmap
 import pickle
 import pdb
 import astropy.io.fits as fits
