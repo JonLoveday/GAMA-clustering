@@ -212,7 +212,7 @@ def mean_vals(array, bins):
 
 
 def sim_test(infile='jswml_sim.fits'):
-    """Compae CiC and historam LFs on simulated data 
+    """Compare CiC and historam LFs on simulated data 
     (jswml.simcat with no k-corrections or density fluctuations)."""
 
     intbl = Table.read(infile)

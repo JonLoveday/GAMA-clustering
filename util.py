@@ -8,6 +8,7 @@ import mpl_toolkits.axisartist.floating_axes as floating_axes
 import mpl_toolkits.axisartist.angle_helper as angle_helper
 from mpl_toolkits.axisartist.grid_finder import MaxNLocator
 import numpy as np
+from numpy.polynomial import Polynomial
 import os
 import pdb
 import pylab as plt
@@ -18,6 +19,8 @@ import subprocess
 #from astLib import astCalc
 from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
+
+from kcorrect.kcorrect import Kcorrect
 
 # Constants
 ln10 = math.log(10)
@@ -997,3 +1000,5 @@ def cic_lf_pred(Mbins, schec_fun, schec_pars):
         else:
             cic_pred[i] /= bin_width
     return cic_pred
+
+

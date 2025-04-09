@@ -8,8 +8,6 @@
 # 1.1 08-aug-14  Much simplified by separating out evolution fitting and
 #                Vdc_max calculation from LF fitting
 # 1.2 13-aug-24  Converted to python3 using 2to3
-# 2.0 31-mar-25  Use SED coefficient K-corrections rather than pre-compued polynomioal fits
-#                replace KDE with CiC LF
 
 
 import contextlib
@@ -21,7 +19,6 @@ if not('DISPLAY' in os.environ):
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import AxesGrid
 import itertools
-from kcorrect.kcorrect import Kcorrect
 import lum
 import math
 import mpmath
@@ -31,7 +28,6 @@ import pmap
 import pickle
 import pdb
 import astropy.io.fits as fits
-from astropy.table import Table, join
 #import pyqt_fit.kde
 import scipy.integrate
 import scipy.interpolate
@@ -57,7 +53,7 @@ matplotlib.rcParams['legend.handlelength'] = 0
 np.seterr(all='warn')
 
 # Global parameters
-par = {'progName': 'jswml.py', 'version': 2.0, 'ev_model': 'z',
+par = {'progName': 'jswml.py', 'version': 1.2, 'ev_model': 'z',
        'clean_photom': True, 'use_wt': True, 'kc_use_poly': True}
 cosmo = None
 sel_dict = {}
@@ -73,6 +69,9 @@ lg2pi = math.log10(2 * math.pi)
 ln10 = math.log(10)
 J3 = 30000.0
 
+# Jacknife regions are 4 deg segments starting at given RA
+njack = 9
+ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5)
 
 # Determined from GAMA-I.  Early/late cut at n = 1.9
 Q_all = 1.59
@@ -126,8 +125,6 @@ den_mass_label = r'$\phi(M)\ (h^3 {\rm Mpc}^{-3} {\rm dex}^{-1})$'
 # plot_dir = os.environ['HOME'] + '/Documents/tex/papers/gama/jswml/'
 plot_dir = './'
 
-metadata_conflicts = 'silent'  # Alternatives are 'warn', 'error'
-
 #------------------------------------------------------------------------------
 # Driver routines
 #------------------------------------------------------------------------------
@@ -159,46 +156,20 @@ def ev_fit_samples(infile='kcorrz01.fits', outroot='ev_{}_petro_fit_{}.dat',
     del sel_dict['colour']
 
 
-def ev_fit_test(infile='GAMAIII', outfile='ev_test_GAMAIII.dat',
-                colour='c', param='R_PETRO', method='lfchi', ev_model='z',
-                Mmax=-12, z0=0.0, kcorr_method='poly', idebug=1):
-    """Determine ev parameters and density-corrected Vmax for specified sample
-    using small number of P, Q bins and no optimization."""
-    par['z0'] = z0
-    par['ev_model'] = ev_model
-    par['clean_photom'] = False
-    ev_fit(infile, outfile, mlims=(0, 19.65), Pbins=(0.0, 2.5, 5), Qbins=(0.0, 2.0, 5), opt=0,
-           param=param, method=method, kcorr_method=kcorr_method, Mmax=Mmax, idebug=idebug)
-
-
-def ev_fit_GAMAII(infile='GAMAII', outfile='ev_GAMAII.dat',
-                  colour='c', param='R_PETRO', method='lfchi', ev_model='z',
-                  Mmax=-12, z0=0.0):
-    """Determine ev parameters and density-corrected Vmax for GAMAII sample."""
-    par['z0'] = z0
-    par['ev_model'] = ev_model
-    par['clean_photom'] = False
-    ev_fit(infile, outfile, Pbins=(0.0, 2.5, 25), Qbins=(0.0, 2.0, 20), opt=1,
-           param=param, method=method, Mmax=Mmax)
-
-
-def ev_fit_test_old(infile='kcorrz01.fits', outroot='ev_test_Mlt{}.dat',
+def ev_fit_test(infile='kcorrz01.fits', outroot='ev_test_Mlt{}.dat',
                 colour='c', param='r_petro', method='lfchi', ev_model='z',
-                Mmax=-12, z0=0.0):
+                Mmax=-12):
     """Determine ev parameters and density-corrected Vmax for specified sample
     using small number of P, Q bins and no optimization."""
-    par['z0'] = z0
     par['ev_model'] = ev_model
-    par['clean_photom'] = False
+    par['clean_photom'] = True
     clr_limits = ('a', 'z')
     if (colour == 'b'): clr_limits = ('b', 'c')
     if (colour == 'r'): clr_limits = ('r', 's')
     sel_dict['colour'] = clr_limits
 #    outfile = outroot.format(method, colour)
     outfile = outroot.format(Mmax)
-    # ev_fit(infile, outfile, Pbins=(0.0, 2.5, 25), Qbins=(0.0, 2.0, 20), opt=0,
-    #        param=param, method=method, Mmax=Mmax)
-    ev_fit(infile, outfile, Pbins=(0.0, 2.5, 3), Qbins=(0.0, 2.0, 3), opt=0,
+    ev_fit(infile, outfile, Pbins=(0.0, 2.5, 25), Qbins=(0.0, 2.0, 20), opt=0,
            param=param, method=method, Mmax=Mmax)
 
 
@@ -332,22 +303,22 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
     # First calculate volumes without evolution
     samp = Sample(infile, par, sel_dict, 0, nqmin=2)
     gala = samp.calc_limits(0)
-    zbin, zhist, V, V_int = z_binning(gala, nz, zmin, zmax)
+    zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vmax_dc, niter = delta_solve(
-        0, 0, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        0, 0, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
     V_raw = np.dot(V, S_obs)
     V_dc = np.dot(delta * V, S_obs)
 
     # Now volume with evolution
     samp = Sample(infile, par, sel_dict, Q, nqmin=2)
     gala = samp.calc_limits(Q)
-    zbin, zhist, V, V_int = z_binning(gala, nz, zmin, zmax)
+    zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vmax_dec, niter = delta_solve(
-        P, Q, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        P, Q, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
     V_dec = np.dot(delta * Pz * V, S_obs)
 
     plt.clf()
@@ -379,7 +350,7 @@ def Vmax_pinch_test(infile='Vmax_lfchi_c.fits', nz=65, idebug=1,
     ax.set_xlim(19, 19.9)
     ax.set_ylim(0.5, 5)
     ax.set_xlabel('r_petro')
-    plt.show()
+    plt.draw()
     if plot_file:
         fig = plt.gcf()
         fig.set_size_inches(plot_size)
@@ -577,8 +548,8 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
            lf_zbins=((0, 20), (20, 65)),
            Pbins=(-0.5, 4.0, 45), Qbins=(0.0, 1.5, 30),
            P_prior=(2, 1), Q_prior=(1, 1),
-           idebug=1, method='lfchi', kcorr_method='poly', err_type='jack',
-           use_mp=False, opt=True, lf_est='bin'):
+           idebug=1, method='lfchi', err_type='jack', use_mp=False, opt=True,
+           lf_est='bin'):
     """Fit evolution parameters and radial overdensities.
     Searches over both Q and P values,
     rather than trying to estimate P from Cole eqn (25).
@@ -598,7 +569,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
     assert method in methods
     lf_bins = np.linspace(Mmin, Mmax, Mbin+1)
 
-    samp = Sample(infile, par, sel_dict, kcorr_method=kcorr_method)
+    samp = Sample(infile, par, sel_dict)
     costfn = Cost(samp, nz, (zmin, zmax), lf_bins, lf_zbins, method,
                   P_prior, Q_prior, Qbins[0], Qbins[1], err_type)
     out = {'par': par}
@@ -639,7 +610,7 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
     ax.plot(P_maxl, Q_maxl, '+')
     ax.set_xlabel('P')
     ax.set_ylabel('Q')
-    plt.show()
+    plt.draw()
 
     if opt:
         if par['idebug'] > 0:
@@ -675,7 +646,9 @@ def ev_fit(infile, outfile, mlims=(0, 19.8), param='r_petro',
     out['whist'] = costfn.whist
     out['ev_fit_chisq'] = costfn.chisq
     out['ev_fit_nu'] = costfn.nu
-    pickle.dump(out, open(outfile, 'wb'))
+    fout = open(outfile, 'w')
+    pickle.dump(out, fout)
+    fout.close()
 
 
 def Vmax_out(infile, evfile, outfile, param='r_petro',
@@ -701,20 +674,20 @@ def Vmax_out(infile, evfile, outfile, param='r_petro',
     # First calculate Vmax values without evolution
     samp = Sample(infile, par, sel_dict, 0, nqmin=2)
     gala = samp.calc_limits(0)
-    zbin, zhist, V, V_int = z_binning(gala, nz, zmin, zmax)
+    zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     Vmax_raw = np.dot(V, S_vis)
     converged, Npred, delta, den_var, Pz, Vmax_dc, niter = delta_solve(
-        0, 0, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        0, 0, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
 #    Vmax_dc = np.dot(delta * V, S)
 
     # Now include evolution
     samp = Sample(infile, par, sel_dict, Q, nqmin=2)
     gala = samp.calc_limits(Q)
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vmax_dec, niter = delta_solve(
-        P, Q, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        P, Q, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
 #    Vmax_ec = np.dot(Pz * V, S)
 
     # Output a new file of selected objects
@@ -768,8 +741,8 @@ def lf_1d(infile, outfile, param, Mmin=-24, Mmax=-12, nbin=48, dmlim=2,
     lf_bins = np.linspace(Mmin, Mmax, nbin+1)
 
     # Find completeness limits in magnitude (Loveday+2012 sec 3.3)
-    Mbright = par['mlims'][0] - dmodk(par['zmax'], par['kc'], par['kc_mean'], par['Q'])
-    Mfaint = par['mlims'][1] - dmodk(par['zmin'], par['kc'], par['kc_mean'], par['Q'])
+    Mbright = par['mlims'][0] - dmodk(par['zmax'], par['kc_mean'], par['Q'])
+    Mfaint = par['mlims'][1] - dmodk(par['zmin'], par['kc_mean'], par['Q'])
     print('Mag completeness limits:', Mbright, Mfaint)
 
     if param in ('logmstar', 'logmstar_fluxscale'):
@@ -784,7 +757,7 @@ def lf_1d(infile, outfile, param, Mmin=-24, Mmax=-12, nbin=48, dmlim=2,
         out['Mbright'] = Mbright
         out['Mfaint'] = Mfaint
 
-    lf = samp.lf1d(gala, gala['Vmax'], lf_bins)
+    lf = lf1d(gala, gala['Vmax'], lf_bins)
     schec = util.schec_fit(lf['Mbin'][comp], lf['phi'][comp],
                            lf['phi_err'][comp],
                            schec_guess, sigma=lf['kde_bandwidth'], loud=1)
@@ -814,7 +787,7 @@ def lf_1d(infile, outfile, param, Mmin=-24, Mmax=-12, nbin=48, dmlim=2,
     plt.xlabel(plot_label(param)[1])
     plt.ylabel(r'$\Phi({})$'.format(plot_label(param)[1]))
     plt.ylim(2e-7, 1)
-    plt.show()
+    plt.draw()
 
     out['Mbin'] = lf['Mbin']
     out['Mhist'] = lf['Mhist']
@@ -854,21 +827,20 @@ def lfnd(inFile, outFile, param_list, zmin=0.002, zmax=0.65, nz=65,
     out = {'par': par, 'qty_list': samp.qty_list}
 
     gala = samp.calc_limits()
-    zbin, zhist, V, V_int = z_binning(gala, nz, zmin, zmax)
+    zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vdc_max, niter = delta_solve(
-        P, Q, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        P, Q, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
  
-    # Jackknife errors on delta
+    # Jacknife errors on delta
     delta_jack = np.zeros((njack, nz))
     for jack in range(njack):
-        idx = (gala['jack'] != jack)
+        idx = (gala['ra'] < ra_jack[jack]) + (gala['ra'] >= ra_jack[jack] + 4.0)
         zhist, bin_edges = np.histogram(
             gala['z'][idx], nz, (zmin, zmax), weights=gala['weight'][idx])
-        zhist *= self.jack_area_corr[njack]
         xx, xx, delta_jack[jack, :], xx, xx, xx, xx = delta_solve(
-            P, Q, gala[idx], nz, zmin, zmax, zbin, zhist, 
+            P, Q, gala[idx], nz, (zmin, zmax), zbin, zhist, 
             V, V_int, S[:, idx])
     delta_err = np.sqrt((njack-1) * np.var(delta_jack, axis=0))
     delta_poiss_err = delta/np.sqrt(zhist)
@@ -899,7 +871,7 @@ def lfnd(inFile, outFile, param_list, zmin=0.002, zmax=0.65, nz=65,
                     absStep/samp.qty_list[0].absStep)
         Mhist_proj = np.sum(Mhist, axis=tuple(range(1, samp.nq)))
     else:
-        lf = samp.LF1d(gala, Vdc_max, lf_bins)
+        lf = LF1d(gala, Vdc_max, lf_bins)
         (Mbin, Mhist, whist, phi, phi_err) = (
             lf.Mbin, lf.Mhist, lf.whist, lf.phi, lf.phi_err)
         phi_proj = phi
@@ -924,7 +896,7 @@ def lfnd(inFile, outFile, param_list, zmin=0.002, zmax=0.65, nz=65,
     ax.set_xlabel(samp.qty_list[0].name)          
     ax.set_ylabel(r'$\Phi({})$'.format(samp.qty_list[0].name))
     ax.set_ylim(2e-7, 1)
-    plt.show()
+    plt.draw()
 
     out['P'] = P
     out['P_err'] = 0
@@ -972,11 +944,11 @@ def ran_gen(gala, outfile, nfac, Q=Qdef, P=Pdef, vol=0):
 
 #    samp = Sample(infile, par, sel_dict)
 #    gala = samp.calc_limits(Q)
-    zbin, zhist, V, V_int = z_binning(gala, nz, zmin, zmax)
+    zbin, zhist, V, V_int = z_binning(gala, nz, (zmin, zmax))
     zstep = zbin[1] - zbin[0]
-    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int, samp.area)
+    S_obs, S_vis = vis_calc(gala, nz, zmin, zstep, V, V_int)
     converged, Npred, delta, den_var, Pz, Vdc_max, niter = delta_solve(
-        P, Q, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S_vis)
+        P, Q, gala, nz, (zmin, zmax), zbin, zhist, V, V_int, S_vis)
     V_max = np.dot(Pz * V, S_vis)
     ndupe = np.round(nfac * V_max / Vdc_max).astype(np.int32)
 
@@ -1012,7 +984,7 @@ def ran_gen(gala, outfile, nfac, Q=Qdef, P=Pdef, vol=0):
     plt.plot(zcen, ranhist*float(ngal)/nran)
     plt.xlabel('Redshift')
     plt.ylabel('Frequency')
-    plt.show()
+    plt.draw()
 
 
 def vol_limit(Mmin, Mmax, zmin, zmax, infile='kcorrz01.fits', Q=0):
@@ -1038,9 +1010,9 @@ def vol_limit(Mmin, Mmax, zmin, zmax, infile='kcorrz01.fits', Q=0):
     print(('{:d} galaxies in vol limit'.format(len(z[idx]))))
 
 
-def z_binning(gala, nz, zmin, zmax):
+def z_binning(gala, nz, xxx_todo_changeme2):
     """Redshift binning and histogram"""
-
+    (zmin, zmax) = xxx_todo_changeme2
     zhist, bin_edges = np.histogram(gala['z'], nz, (zmin, zmax), 
                                     weights=gala['weight'])
     zstep = bin_edges[1] - bin_edges[0]
@@ -1049,11 +1021,11 @@ def z_binning(gala, nz, zmin, zmax):
     V = np.diff(V_int)
     return zbin, zhist, V, V_int
 
-def vis_calc(gala, nz, zmin, zstep, V, V_int, area):
+def vis_calc(gala, nz, zmin, zstep, V, V_int):
     """Arrays S_obs and S_vis contain volume-weighted fraction of 
     redshift bin iz in which galaxy igal lies and is visible."""
 
-    afac = area / 3.0
+    afac = par['area'] / 3.0
     ngal = len(gala)
     S_obs = np.zeros((nz, ngal))
     S_vis = np.zeros((nz, ngal))
@@ -1073,9 +1045,10 @@ def vis_calc(gala, nz, zmin, zstep, V, V_int, area):
         S_vis[ihi, igal] = Vp/V[ihi]
     return S_obs, S_vis
 
-def delta_solve(P, Q, gala, nz, zmin, zmax, zbin, zhist, V, V_int, S, 
+def delta_solve(P, Q, gala, nz, xxx_todo_changeme3, zbin, zhist, V, V_int, S, 
                 nitermax=50, delta_tol=1e-4):
     """Solve for overdensity delta for given P, Q."""
+    (zmin, zmax) = xxx_todo_changeme3
     converged = False
     niter = 0
     Npred = np.zeros(nz)
@@ -1171,6 +1144,44 @@ def delta_P_solve(Q, gala, zbin, zhist, V, V_int, S, P_prior, nitermax=50,
     return converged, P, mu, Npred, delta, den_var, Pz, V_max_corr
 
 
+def lf1d(gala, V_max_corr, lf_bins):
+    """Calculates univariate LF."""
+    
+    absval = gala['absval_lf']
+    Mbin = lf_bins[:-1] + 0.5*np.diff(lf_bins)
+    # for i in xrange(len(Mbin)):
+    #     idx = (lf_bins[i] <= absval) * (absval < lf_bins[i+1])
+    #     Mbin[i] = np.mean(absval[idx])
+
+    Mhist, edges = np.histogram(absval, lf_bins)
+    whist, edges = np.histogram(absval, lf_bins, weights=gala['weight'])
+    wt = gala['weight']/V_max_corr
+    if par['lf_est'] == 'bin':
+        phi, edges = np.histogram(absval, lf_bins, weights=wt)
+        phi /= np.diff(lf_bins)
+        kde_bandwidth = 0
+    if par['lf_est'] == 'kde':
+        kde = pyqt_fit.kde.KDE1D(absval, lower=lf_bins[0], 
+                                 upper=lf_bins[-1], weights=wt)
+        phi = kde(Mbin) * wt.sum()
+        kde_bandwidth = kde.bandwidth
+
+    # Jackknife errors
+    phi_jack = np.zeros((njack, len(phi)))
+    for jack in range(njack):
+        idx = (gala['ra'] < ra_jack[jack]) + (gala['ra'] >= ra_jack[jack] + 4.0)
+        if par['lf_est'] == 'bin':
+            phi_jack[jack, :], edges = np.histogram(
+                absval[idx], lf_bins, weights=wt[idx])
+            phi_jack[jack, :] *= float(njack)/(njack-1)/np.diff(lf_bins)
+        if par['lf_est'] == 'kde':
+            kde = pyqt_fit.kde.KDE1D(absval[idx], lower=lf_bins[0], 
+                                     upper=lf_bins[-1], weights=wt[idx])
+            phi_jack[jack, :] = kde(Mbin) * wt[idx].sum() * njack / (njack-1)
+    phi_err = np.sqrt((njack-1) * np.var(phi_jack, axis=0))
+    lf = {'Mbin': Mbin, 'Mhist': Mhist, 'whist': whist, 
+          'phi': phi, 'phi_err': phi_err, 'kde_bandwidth': kde_bandwidth}
+    return lf
 
 def lfnd(gala, V_max_corr, lf_bins, lf_range, absStep):
     """Returns n-d LF with errors from jackknife sampling."""
@@ -1188,19 +1199,19 @@ def lfnd(gala, V_max_corr, lf_bins, lf_range, absStep):
     # Jackknife errors
     phi_jack = np.zeros(([njack] + list(phi.shape)))
     for jack in range(njack):
-        idx = (gala['jack'] != jack)
+        idx = (gala['ra'] < ra_jack[jack]) + (gala['ra'] >= ra_jack[jack] + 4.0)
         phi_jack[jack, :], edges = np.histogramdd(
             absval[idx], lf_bins, weights=gala['weight'][idx] / V_max_corr[idx])
-        phi_jack[jack, :] *= jack_area_corr[njack]/absStep
+        phi_jack[jack, :] *= float(njack)/(njack-1)/absStep
     phi_err = np.sqrt((njack-1) * np.var(phi_jack, axis=0))
     return Mhist, whist, phi, phi_err, edges
 
 class Cost(object):
     """Cost function and associated parameters."""
 
-    def __init__(self, samp, nz, zrange, lf_bins, lf_zbins, 
+    def __init__(self, samp, nz, xxx_todo_changeme, lf_bins, lf_zbins, 
                  method, P_prior, Q_prior, Qmin, Qmax, err_type='jack'):
-        (zmin, zmax) = zrange
+        (zmin, zmax) = xxx_todo_changeme
         self.samp = samp
         self.nz = nz
         self.zmin = zmin
@@ -1208,7 +1219,7 @@ class Cost(object):
         self.zbin_edges, self.zstep = np.linspace(zmin, zmax, nz+1, retstep=True)
         self.zbin = self.zbin_edges[:-1] + 0.5 * self.zstep
         self.dist_mod = cosmo.dist_mod(self.zbin)
-        self.V_int = samp.area / 3.0 * cosmo.dm(self.zbin_edges)**3
+        self.V_int = par['area'] / 3.0 * cosmo.dm(self.zbin_edges)**3
         self.V = np.diff(self.V_int)
         self.lf_bins = lf_bins
         self.lf_zbins = lf_zbins
@@ -1246,35 +1257,37 @@ class Cost(object):
                     zhi = zmin + lf_zbins[iz][1]*zstep
                     idx = (zlo <= gala['z']) * (gala['z'] < zhi)
                     Mhist, edges = np.histogram(gala['absval_lf'][idx], lf_bins)
-                    Mmin = par['mlims'][0] - self.samp.dmod_kmean(zhi)
-                    Mmax = par['mlims'][1] - self.samp.dmod_kmean(zhi)
+                    Mmin = par['mlims'][0] - dmodk(zhi, samp.kmean, Q)
+                    Mmax = par['mlims'][1] - dmodk(zlo, samp.kmean, Q)
                     Mlo = edges[:-1]
                     Mhi = edges[1:]
                     self.binidx[iz, :] *= (Mhi < Mmax) * (Mlo > Mmin) * (Mhist > 9)
                     if par['idebug'] > 0 and Q == self.Qmax:
                         print(zlo, zhi, Mmax, len(Mhist[self.binidx[iz, :]]))
 
-    def __call__(self, PQ):
+    def __call__(self, xxx_todo_changeme1):
         """Returns cost for evolution parameters (P, Q).  
         If P is None then solve for P."""
-        (P, Q) = PQ
+        (P, Q) = xxx_todo_changeme1
         if Q != self.Q:
             self.Q = Q
             self.gala = self.samp.calc_limits(Q)
             self.S_obs, self.S_vis = vis_calc(
-                self.gala, self.nz, self.zmin, self.zstep, self.V, self.V_int, self.samp.area)
+                self.gala, self.nz, self.zmin, self.zstep, self.V, self.V_int)
             self.zhist, bin_edges = np.histogram(
                 self.gala['z'], self.nz, (self.zmin, self.zmax), 
                 weights=self.gala['weight'])
-            kcorr_array = np.zeros((self.samp.ngal, self.nz))
-            for iz in range(self.nz):
-                zarr = np.broadcast_to(self.zbin[iz], self.samp.ngal)
-                kcorr_array[:, iz] = self.samp.kcorr_all(zarr)
-            Mhi = par['Mmax'] - self.dist_mod - kcorr_array + ecorr(self.zbin[iz], Q)
+            Mhi = (
+                par['Mmax'] - self.dist_mod - 
+                kcorr(self.zbin, self.gala['kcoeff'].transpose()) + 
+                ecorr(self.zbin, Q))
             self.hi_bin, self.hi_frac = self.samp.abs_bin(Mhi)
-            Mlo = par['Mmin'] - self.dist_mod - kcorr_array + ecorr(self.zbin[iz], Q)
+            Mlo = (
+                par['Mmin'] - self.dist_mod - 
+                kcorr(self.zbin, self.gala['kcoeff'].transpose()) + 
+                ecorr(self.zbin, Q))
             self.lo_bin, self.lo_frac = self.samp.abs_bin(Mlo)
-            # pdb.set_trace()
+            pdb.set_trace()
         if P is None:
             (converged, self.P, self.mu, Npred, self.delta, 
              self.den_var, Pz, Vdc_max) = delta_P_solve(
@@ -1284,16 +1297,16 @@ class Cost(object):
             self.P = P
             (converged, Npred, self.delta, self.den_var, 
              Pz, Vdc_max, niter) = delta_solve(
-                P, Q, self.gala, self.nz, self.zmin, self.zmax, self.zbin, 
+                P, Q, self.gala, self.nz, (self.zmin, self.zmax), self.zbin, 
                 self.zhist, self.V, self.V_int, self.S_vis)
         self.delta_old = self.delta
 
-        # Jackknife errors on delta
-        njack = self.samp.njack
+        # Jacknife errors on delta
         if self.err_type == 'jack':
             delta_jack = np.zeros((njack, self.nz))
             for jack in range(njack):
-                idx = (self.gala['jack'] != jack)
+                idx = ((self.gala['ra'] < ra_jack[jack]) + 
+                       (self.gala['ra'] >= ra_jack[jack] + 4.0))
                 zhist, bin_edges = np.histogram(
                     self.gala['z'][idx], self.nz, (self.zmin, self.zmax), 
                     weights=self.gala['weight'][idx])
@@ -1303,7 +1316,7 @@ class Cost(object):
                         self.V, self.V_int, self.S_vis[:, idx], self.delta_old)
                 else:
                     xx, xx, delta_jack[jack, :], xx, xx, xx, xx = delta_solve(
-                        P, Q, self.gala[idx], self.nz, self.zmin, self.zmax, 
+                        P, Q, self.gala[idx], self.nz, (self.zmin, self.zmax), 
                         self.zbin, zhist, self.V, self.V_int, 
                         self.S_vis[:, idx])
                 self.delta_err = np.sqrt((njack-1) * np.var(delta_jack, axis=0))
@@ -1326,7 +1339,7 @@ class Cost(object):
         ax.text(0.1, 0.9, r'$P = {:4.2f},\ Q = {:4.2f}$'.format(P, Q),
                 transform = ax.transAxes)
 
-        lf = self.samp.lf1d(self.gala, Vdc_max, self.lf_bins)
+        lf = lf1d(self.gala, Vdc_max, self.lf_bins)
         (self.Mbin, self.Mhist, self.whist, self.phi, self.phi_err) = (
             lf['Mbin'], lf['Mhist'], lf['whist'], lf['phi'], lf['phi_err'])
 
@@ -1338,7 +1351,7 @@ class Cost(object):
         ax.semilogy()
         ax.set_ylim(1e-5, 0.05)
         plt.subplots_adjust(hspace=0.25)
-        plt.show()
+        plt.draw()
         
         if self.method == 'post':
             idx = (self.delta > 0) * (del_var > 0) 
@@ -1398,13 +1411,13 @@ class Cost(object):
                 V_max = np.dot(self.delta[izlo:izhi] * 
                                Pz[izlo:izhi] * self.V[izlo:izhi],
                                self.S_vis[izlo:izhi, galidx])
-                lfz = self.samp.lf1d(galz, V_max, self.lf_bins)
+                lfz = lf1d(galz, V_max, self.lf_bins)
                 phiz[iz, :] = lfz['phi']
                 phiz_err[iz, :] = lfz['phi_err']
                 ax.errorbar(lfz['Mbin'][self.binidx[iz, :]], 
                             phiz[iz, self.binidx[iz, :]], 
                             phiz_err[iz, self.binidx[iz, :]])
-                plt.show()
+                plt.draw()
 
             idx = del_var > 0
             self.chisq = ((self.delta[idx]-1)**2 / del_var[idx]).sum()
@@ -1439,7 +1452,7 @@ class Cost(object):
         if par['idebug'] > 1:
             ax = plt.subplot(2, 1, 1)
             ax.plot((0.0, 0.5), np.polyval(popt, (0.0, 0.5)), '--')
-            plt.show()
+            plt.draw()
 
         if self.method == 'min_slope':
             return abs(popt[0])
@@ -1542,446 +1555,192 @@ def read_gama(file, param_list):
 # Support classes and functions
 #------------------------------------------------------------------------------
 
+
 class Sample(object):
-    """A sample of galaxies, whose attributes are stored in structured array gal_arr.
-    This new version calculates K-corrections using SED coeffs rather than polynomial fits."""
+    """A sample of galaxies, whose attributes are stored in
+    structured array gal_arr."""
 
-    def read_GAMAII(self):
-        """Read GAMA-II data."""
-
-        # Jackknife regions are 4 deg segments starting at given RA
-        self.njack = 9
-        ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5)
-        jack_area = np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0])
-        self.jack_area_corr = (jack_area.sum() - jack_area) / jack_area.sum()
-        self.area = jack_area.sum() * (math.pi/180.0)**2
-
-        infile = '../../TilingCatv46.fits'
-        tbl = Table.read(infile)
-        t = Table.read('../../ApMatchedCatv06.fits')
-        t.keep_columns(['CATAID',
-                        'FLUX_AUTO_u', 'FLUX_AUTO_g', 'FLUX_AUTO_r', 'FLUX_AUTO_i', 'FLUX_AUTO_z',
-                        'FLUXERR_AUTO_u', 'FLUXERR_AUTO_g', 'FLUXERR_AUTO_r',
-                        'FLUXERR_AUTO_i', 'FLUXERR_AUTO_z'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-        t = Table.read('../../GalacticExtinctionv03.fits')
-        t.remove_columns(['RA', 'DEC'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-        t = Table.read('../../DistancesFramesv14.fits')
-        t.remove_columns(['RA', 'DEC', 'NQ'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-
-        sel = ((tbl['SURVEY_CLASS'] > 3) * (tbl['NQ'] >= 3) *
-                (tbl['Z_TONRY'] >= self.zmin) * (tbl['Z_TONRY'] < self.zmax))
-
-        # Extinction corrections
-        tbl['flux_u'] = tbl['FLUX_AUTO_u'] * 10**(0.4 * tbl['A_u'])
-        tbl['flux_g'] = tbl['FLUX_AUTO_g'] * 10**(0.4 * tbl['A_g'])
-        tbl['flux_r'] = tbl['FLUX_AUTO_r'] * 10**(0.4 * tbl['A_r'])
-        tbl['flux_i'] = tbl['FLUX_AUTO_i'] * 10**(0.4 * tbl['A_i'])
-        tbl['flux_z'] = tbl['FLUX_AUTO_z'] * 10**(0.4 * tbl['A_z'])
-        responses = ['sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0', 'sdss_z0']
-        flux_cols = ['flux_u', 'flux_g', 'flux_r', 'flux_i', 'flux_z']
-        flux_err_cols = ['FLUXERR_AUTO_u', 'FLUXERR_AUTO_g', 'FLUXERR_AUTO_r',
-                            'FLUXERR_AUTO_i', 'FLUXERR_AUTO_z']
-        zcol = 'Z_TONRY'
-        self.refband = 2
-        refclr = [2, 4]
-
-        if par['clean_photom']:
-            ncand = len(tbl[sel])
-            sel *= ((tbl['bn_objid'] < 0) *
-                    (np.fabs(tbl['r_petro'] - tbl['r_sersic']) <
-                    par['dmlim']))
-            nclean = len(tbl[sel])
-            print(nclean, 'out of', ncand, 'targets with clean photometry')
-
-        tbl = tbl[sel]
-        ngal = len(tbl)
-        self.kc, k, coeffs = util.kfit(tbl, responses, zcol, flux_cols, flux_err_cols,
-                                    refclr=refclr, plot=True)
-        self.kmean_coeffs = np.mean(coeffs, axis=0)
-    
-        ncoeff = coeffs.shape[1]
-        gal_arr = np.zeros(
-            ngal,
-            dtype=[('cataid', 'int32'),
-                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
-                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
-                   ('jack', 'int32'), ('weight', 'float32'),
-                   ('kc', 'float32'), ('kcoeff', 'float32', coeffs.shape[1]),
-                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
-                   ])
-
-        z = tbl['Z_TONRY']
-        gal_arr['cataid'] = tbl['CATAID']
-        gal_arr['appval_sel'] = tbl['R_PETRO']
-        gal_arr['appval_lf'] = tbl[par['param']]
-        gal_arr['z'] = tbl[zcol]
-        gal_arr['kc'] = k[:, self.refband]
-        gal_arr['kcoeff'] = coeffs
-
-        # Assign jackknife regions
-        jack_arr = np.zeros(self.ngal)
-        for ijack in range(self.njack):
-            idx = (tbl['RA'] < ra_jack[ijack]) + (tbl['RA'] >= ra_jack[ijack] + 4.0)
-            jack_arr[idx] = ijack
-        gal_arr['jack'] = jack_arr
-
-        self.gal_arr = gal_arr
-        return tbl, gal_arr
-
-    def read_sim(self):
-        """Read simulated data."""
-
-        # Jackknife regions are 4 deg segments starting at given RA
-        self.njack = 9
-        ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5)
-        jack_area = np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0])
-        self.jack_area_corr = (jack_area.sum() - jack_area) / jack_area.sum()
-        self.area = jack_area.sum() * (math.pi/180.0)**2
-
-        infile = '../../TilingCatv46.fits'
-        tbl = Table.read(infile)
-        t = Table.read('../../ApMatchedCatv06.fits')
-        t.keep_columns(['CATAID',
-                        'FLUX_AUTO_u', 'FLUX_AUTO_g', 'FLUX_AUTO_r', 'FLUX_AUTO_i', 'FLUX_AUTO_z',
-                        'FLUXERR_AUTO_u', 'FLUXERR_AUTO_g', 'FLUXERR_AUTO_r',
-                        'FLUXERR_AUTO_i', 'FLUXERR_AUTO_z'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-        t = Table.read('../../GalacticExtinctionv03.fits')
-        t.remove_columns(['RA', 'DEC'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-        t = Table.read('../../DistancesFramesv14.fits')
-        t.remove_columns(['RA', 'DEC', 'NQ'])
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-
-        sel = ((tbl['SURVEY_CLASS'] > 3) * (tbl['NQ'] >= 3) *
-                (tbl['Z_TONRY'] >= self.zmin) * (tbl['Z_TONRY'] < self.zmax))
-
-        # Extinction corrections
-        tbl['flux_u'] = tbl['FLUX_AUTO_u'] * 10**(0.4 * tbl['A_u'])
-        tbl['flux_g'] = tbl['FLUX_AUTO_g'] * 10**(0.4 * tbl['A_g'])
-        tbl['flux_r'] = tbl['FLUX_AUTO_r'] * 10**(0.4 * tbl['A_r'])
-        tbl['flux_i'] = tbl['FLUX_AUTO_i'] * 10**(0.4 * tbl['A_i'])
-        tbl['flux_z'] = tbl['FLUX_AUTO_z'] * 10**(0.4 * tbl['A_z'])
-        responses = ['sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0', 'sdss_z0']
-        flux_cols = ['flux_u', 'flux_g', 'flux_r', 'flux_i', 'flux_z']
-        flux_err_cols = ['FLUXERR_AUTO_u', 'FLUXERR_AUTO_g', 'FLUXERR_AUTO_r',
-                            'FLUXERR_AUTO_i', 'FLUXERR_AUTO_z']
-        zcol = 'Z_TONRY'
-        self.refband = 2
-        refclr = [2, 4]
-
-        if par['clean_photom']:
-            ncand = len(tbl[sel])
-            sel *= ((tbl['bn_objid'] < 0) *
-                    (np.fabs(tbl['r_petro'] - tbl['r_sersic']) <
-                    par['dmlim']))
-            nclean = len(tbl[sel])
-            print(nclean, 'out of', ncand, 'targets with clean photometry')
-
-        tbl = tbl[sel]
-        ngal = len(tbl)
-        self.kc, k, coeffs = util.kfit(tbl, responses, zcol, flux_cols, flux_err_cols,
-                                    refclr=refclr, plot=True)
-        self.kmean_coeffs = np.mean(coeffs, axis=0)
-    
-        ncoeff = coeffs.shape[1]
-        gal_arr = np.zeros(
-            ngal,
-            dtype=[('cataid', 'int32'),
-                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
-                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
-                   ('jack', 'int32'), ('weight', 'float32'),
-                   ('kc', 'float32'), ('kcoeff', 'float32', coeffs.shape[1]),
-                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
-                   ])
-
-        z = tbl['Z_TONRY']
-        gal_arr['cataid'] = tbl['CATAID']
-        gal_arr['appval_sel'] = tbl['R_PETRO']
-        gal_arr['appval_lf'] = tbl[par['param']]
-        gal_arr['z'] = tbl[zcol]
-        gal_arr['kc'] = k[:, self.refband]
-        gal_arr['kcoeff'] = coeffs
-
-        # Assign jackknife regions
-        jack_arr = np.zeros(self.ngal)
-        for ijack in range(self.njack):
-            idx = (tbl['RA'] < ra_jack[ijack]) + (tbl['RA'] >= ra_jack[ijack] + 4.0)
-            jack_arr[idx] = ijack
-        gal_arr['jack'] = jack_arr
-
-        self.gal_arr = gal_arr
-        return tbl, gal_arr
-
-    def read_GAMAIII(self):
-        """Read GAMA-III data."""
-
-        # Jackknife regions are 4 deg segments starting at given RA
-        self.njack = 12
-        ra_jack = (129, 133, 137, 174, 178, 182, 211.5, 215.5, 219.5, 339, 343, 347)
-        jack_area = np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 50.6/3, 50.6/3, 50.6/3])
-        self.jack_area_corr = (jack_area.sum() - jack_area) / jack_area.sum()
-        self.area = jack_area.sum() * (math.pi/180.0)**2
-
-        infile = '../../DR4/gkvScienceCatv02.fits'
-        tbl = Table.read(infile)
-        sel = ((tbl['SC'] >= 7) * (tbl['NQ'] >= 3) *
-                (tbl['Z'] >= self.zmin) * (tbl['Z'] < self.zmax))
-        tbl = tbl[sel]
-        t = Table.read('../../DR4/kcorr.fits')
-        t.remove_column('Z')
-        responses = t.meta['RESPONSES']
-        self.kc = Kcorrect(responses=responses)
-
-        tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
-        ngal = len(tbl)
-
-        self.mean_kcoeffs = np.mean(tbl['kcoeffs'], axis=0)
-        self.mean_pcoeffs = np.mean(tbl['pcoeffs'], axis=0)
-        self.refband = 2  # assumes ugriz bands
-
-        gal_arr = np.zeros(
-            ngal,
-            dtype=[('cataid', 'int32'),
-                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
-                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
-                   ('jack', 'int32'), ('weight', 'float32'),
-                   ('kc', 'float32'), ('kcoeff', 'float32', tbl['kcoeffs'].shape[1]),
-                   ('pcoeff', 'float32', tbl['pcoeffs'].shape[1]),
-                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
-                   ])
-
-        gal_arr['cataid'] = tbl['CATAID']
-        gal_arr['appval_sel'] = 8.9 - 2.5*np.log10(tbl['flux_rt'])
-        gal_arr['appval_lf'] = gal_arr['appval_sel']
-        gal_arr['z'] = tbl['Z']
-        gal_arr['kc'] = tbl['Kcorr'][:, self.refband]
-        gal_arr['kcoeff'] = tbl['kcoeffs']
-        gal_arr['pcoeff'] = tbl['pcoeffs']
-
-        # Assign jackknife regions
-        jack_arr = np.zeros(ngal)
-        for ijack in range(self.njack):
-            idx = (tbl['RAcen'] < ra_jack[ijack]) + (tbl['RAcen'] >= ra_jack[ijack] + 4.0)
-            jack_arr[idx] = ijack
-        gal_arr['jack'] = jack_arr
-
-        return tbl, gal_arr
-
-    def __init__(self, cat, selpar, sel_dict, zmin=0.002, zmax=0.65, Q=0, z0=0.0,
-                 kcorr_method='poly'):
-        """Read selected objects from input file."""
+    def __init__(self, infile, selpar, sel_dict, Q=0, chi2max=10, nqmin=3):
+        """Read selected objects from FITS table."""
 
         global cosmo, par
 
-        par = par | selpar
-        self.zmin, self.zmax = zmin, zmax
-        self.kcorr_method = kcorr_method
+        par = selpar
+        zmin, zmax = par['zmin'], par['zmax']
         self.Mmin = par['Mmin']
         self.Mmax = par['Mmax']
         self.Mbin = par['Mbin']
         self.Mstep = float(self.Mmax - self.Mmin)/self.Mbin
 
-        # hdulist = fits.open(infile)
-        # header = hdulist[1].header
-        # tbl = hdulist[1].data
-        # cols = hdulist[1].columns
-        self.H0 = 100.0
-        self.omega_l = 0.7
-        self.z0 = z0
-        self.Q = Q
-        cosmo = util.CosmoLookup(self.H0, self.omega_l, (zmin, zmax))
+        hdulist = fits.open(infile)
+        header = hdulist[1].header
+        tbdata = hdulist[1].data
+        cols = hdulist[1].columns
+        par['H0'] = 100.0
+        par['omega_l'] = header['OMEGA_L']
+        par['z0'] = header['Z0']
+        par['area'] = header['AREA'] * (math.pi/180.0)**2
+        cosmo = util.CosmoLookup(par['H0'], par['omega_l'], (zmin, zmax))
         self.par = par
         self.cosmo = cosmo
-
-        if cat == 'GAMAII':
-            tbl, gal_arr = self.read_GAMAII()
-
-        if cat == 'GAMAIII':
-            tbl, gal_arr = self.read_GAMAIII()
-
         print(('H0, omega_l, z0, area/Sr = ',
-              self.H0, self.omega_l, self.z0, self.area))
+              par['H0'], par['omega_l'], par['z0'], par['area']))
 
-        # # Apply other selection limits in sel_dict
-        # for key, limits in sel_dict.items():
-        #     print(key, limits)
-        #     sel *= ((tbl[key] >= limits[0]) *
-        #             (tbl[key] < limits[1]))
-        #     par[key] = limits
+        try:
+            alpha = header['alpha']
+            sim = True
+            print('Simulated data')
+        except:
+            sim = False
 
-        # # Exclude objects with suspect photometry
-        # # pdb.set_trace()
-        # if par['clean_photom']:
-        #     ncand = len(tbl[sel])
-        #     sel *= ((tbl['bn_objid'] < 0) *
-        #             (np.fabs(tbl['r_petro'] - tbl['r_sersic']) <
-        #             par['dmlim']))
-        #     nclean = len(tbl[sel])
-        #     print(nclean, 'out of', ncand, 'targets with clean photometry')
+        if 'IREAL' in cols.names:
+            mock = True
+            sel = ((tbdata['ireal'] == par['ireal']) *
+                   (tbdata['redshift_obs'] >= zmin) *
+                   (tbdata['redshift_obs'] < zmax))
+        else:
+            mock = False
+            sel = ((tbdata['survey_class'] > 3) *
+                   (tbdata['nq'] >= nqmin) *
+                   (tbdata['z_tonry'] >= zmin) *
+                   (tbdata['z_tonry'] < zmax))
 
-        # tbl = tbl[sel]
-        # ngal = len(tbl)
-        # self.kc, k, coeffs = util.kfit(tbl, responses, zcol, flux_cols, flux_err_cols,
-        #                             refclr=refclr, plot=True)
-        # self.kmean_coeffs = np.mean(coeffs, axis=0)
-    
-        # ncoeff = coeffs.shape[1]
-        # gal_arr = np.zeros(
-        #     ngal,
-        #     dtype=[('cataid', 'int32'),
-        #            ('appval_sel', 'float32'), ('absval_sel', 'float32'),
-        #            ('appval_lf', 'float32'), ('absval_lf', 'float32'),
-        #            ('ra', 'float32'), ('dec', 'float32'),
-        #            ('weight', 'float32'),
-        #            ('kc', 'float32'), ('kcoeff', 'float32', coeffs.shape[1]),
-        #            ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
-        #            ])
-        # if cat == 'mock':
-        #     z = tbl['redshift_obs']
-        #     gal_arr['cataid'] = 0
-        #     gal_arr['ra'] = tbl['ra']
-        #     gal_arr['dec'] = tbl['dec']
-        #     gal_arr['appval_sel'] = tbl['SDSS_r_obs_app']
-        #     gal_arr['appval_lf'] = tbl[par['param']]
-        #     gal_arr['z'] = z
-        #     gal_arr['kc'] = tbl['kcorr_r']
-        #     gal_arr['kcoeff'] = tbl['pcoeff_r']
-        # if cat == 'GAMAII':
-        #     z = tbl['Z_TONRY']
-        #     gal_arr['cataid'] = tbl['CATAID']
-        #     gal_arr['ra'] = tbl['RA']
-        #     gal_arr['dec'] = tbl['DEC']
-        #     gal_arr['appval_sel'] = tbl['R_PETRO']
-        #     gal_arr['appval_lf'] = tbl[par['param']]
-        #     gal_arr['z'] = tbl[zcol]
-        #     gal_arr['kc'] = k[:, self.refband]
-        #     gal_arr['kcoeff'] = coeffs
+        # Apply other selection limits in sel_dict
+        for key, limits in sel_dict.items():
+            print(key, limits)
+            sel *= ((tbdata[key] >= limits[0]) *
+                    (tbdata[key] < limits[1]))
+            par[key] = limits
 
-        # if cat == 'GAMAIII':
-        #     z = tbl['Z']
-        #     gal_arr['cataid'] = tbl['CATAID']
-        #     gal_arr['ra'] = tbl['RAcen']
-        #     gal_arr['dec'] = tbl['Deccen']
-        #     gal_arr['appval_sel'] = 8.9 - 2.5*np.log10(tbl['flux_rt'])
-        #     gal_arr['appval_lf'] = gal_arr['appval_sel']
-        #     gal_arr['z'] = tbl[zcol]
-        #     gal_arr['kc'] = k[:, self.refband]
-        #     gal_arr['kcoeff'] = coeffs
+        # Exclude objects with suspect photometry
+        # pdb.set_trace()
+        if par['clean_photom']:
+            ncand = len(tbdata[sel])
+            sel *= ((tbdata['bn_objid'] < 0) *
+                    (np.fabs(tbdata['r_petro'] - tbdata['r_sersic']) <
+                    par['dmlim']))
+            nclean = len(tbdata[sel])
+            print(nclean, 'out of', ncand, 'targets with clean photometry')
 
-        z = gal_arr['z']
+        tbdata = tbdata[sel]
+        ngal = len(tbdata)
+        nk = tbdata['pcoeff_r'].shape[1]
+        gal_arr = np.zeros(
+            ngal,
+            dtype=[('cataid', 'int32'),
+                   ('appval_sel', 'float32'), ('absval_sel', 'float32'),
+                   ('appval_lf', 'float32'), ('absval_lf', 'float32'),
+                   ('ra', 'float32'), ('dec', 'float32'),
+                   ('weight', 'float32'),
+                   ('kc', 'float32'), ('kcoeff', 'float32', nk),
+                   ('z', 'float32'), ('zlo', 'float32'), ('zhi', 'float32')
+                   ])
+        if mock:
+            z = tbdata['redshift_obs']
+            gal_arr['cataid'] = 0
+            gal_arr['ra'] = tbdata['ra']
+            gal_arr['dec'] = tbdata['dec']
+            gal_arr['appval_sel'] = tbdata['SDSS_r_obs_app']
+            gal_arr['appval_lf'] = tbdata[par['param']]
+            gal_arr['z'] = z
+            gal_arr['kc'] = tbdata['kcorr_r']
+            gal_arr['kcoeff'] = tbdata['pcoeff_r']
+        else:
+            z = tbdata['z_tonry']
+            gal_arr['cataid'] = tbdata['cataid']
+            gal_arr['ra'] = tbdata['ra']
+            gal_arr['dec'] = tbdata['dec']
+            gal_arr['appval_sel'] = tbdata['r_petro']
+            gal_arr['appval_lf'] = tbdata[par['param']]
+            gal_arr['z'] = z
+            gal_arr['kc'] = tbdata['kcorr_r']
+            gal_arr['kcoeff'] = tbdata['pcoeff_r']
+
+        if par['kc_use_poly']:
+            gal_arr['kc'] = np.polynomial.polynomial.polyval(
+                z - par['z0'], gal_arr['kcoeff'].transpose(), tensor=False)
+        if sim:
+            # Reverse coeffs given in old (high -> low) order
+            gal_arr['kcoeff'] = gal_arr['kcoeff'][:, ::-1]
+
+        # Fit polynomial to median K(z) for good fits
+        good = np.isfinite(gal_arr['kc']) * (tbdata['chi2'] < chi2max)
+        zbin = np.linspace(par['zmin'], par['zmax'], 50) - par['z0']
+        k_array = np.polynomial.polynomial.polyval(
+            zbin, gal_arr['kcoeff'][good].transpose())
+        k_median = np.median(k_array, axis=0)
+        self.kmean = np.polynomial.polynomial.polyfit(zbin, k_median, nk-1)
+
+        # Set any missing or bad k-corrs to median values
+        bad = np.logical_not(good)
+        nbad = len(z[bad])
+        if nbad > 0:
+            gal_arr['kc'][bad] = np.polynomial.polynomial.polyval(
+                z[bad] - par['z0'], self.kmean)
+            gal_arr['kcoeff'][bad] = self.kmean
+            print(nbad, 'missing/bad k-corrections replaced with mean')
+            f = open('bad_kcorr.txt', 'w')
+            for ibad in range(nbad):
+                print(gal_arr['cataid'][bad][ibad], file=f)
+            f.close()
+
         gal_arr['absval_sel'] = (gal_arr['appval_sel'] - cosmo.dist_mod(z) -
                                  gal_arr['kc'] + ecorr(z, Q))
         gal_arr['absval_lf'] = (gal_arr['appval_lf'] - cosmo.dist_mod(z) -
                                 gal_arr['kc'] + ecorr(z, Q))
 
-        self.header = tbl.meta
-        self.tbl = tbl
+        self.header = header
+        self.tbdata = tbdata
         self.gal_arr = gal_arr
-        self.ngal = len(tbl)
-        print(self.ngal, 'galaxies selected')
-
-        plt.clf()
-        plt.hist(self.gal_arr['appval_lf'], bins=np.linspace(15, 19.65, 91))
-        plt.semilogy()
-        plt.show()
-
-        plt.clf()
-        plt.scatter(self.gal_arr['z'], self.gal_arr['absval_lf'], s=0.1)
-        plt.show()
+        self.ngal = ngal
+        print(ngal, 'galaxies selected')
 
         # Completeness weight
-        # sb = (tbl[('r_petro') + 2.5*lg2pi +
-        #                   5*np.log10(tbl[('petror50_r')))
+        # sb = (tbdata[('r_petro') + 2.5*lg2pi +
+        #                   5*np.log10(tbdata[('petror50_r')))
         try:
-            sb = tbl['r_sb']
+            sb = tbdata['r_sb']
             imcomp = np.interp(sb, sb_tab, comp_tab)
         except:
             print('No column r_sb; ignoring SB completeness')
-            imcomp = np.ones(self.ngal)
+            imcomp = np.ones(ngal)
         try:
-            r_fibre = tbl['fibermag_r']
+            r_fibre = tbdata['fibermag_r']
             zcomp = z_comp(r_fibre)
         except:
             print('No column fibermag_r; ignoring redshift completeness')
-            zcomp = np.ones(self.ngal)
+            zcomp = np.ones(ngal)
         self.gal_arr['weight'] = np.clip(1.0/(imcomp*zcomp), 1, wmax)
 
-
-    def kcorr_one(self, z, igal):
-        """K-correction for galaxy igal."""
-        if self.kcorr_method == 'sed':
-            return self.kc.kcorrect(redshift=z, coeffs=self.gal_arr['kcoeff'][igal, :],
-                                    band_shift=self.z0)[self.refband]
-        else:
-            return np.polynomial.polynomial.polyval(z - par['z0'], self.gal_arr['pcoeff'][igal, :])
-
-    def kcorr_all(self, z):
-        """K-correction for all galaxies."""
-        if self.kcorr_method == 'sed':
-            return self.kc.kcorrect(redshift=z, coeffs=self.gal_arr['kcoeff'],
-                                    band_shift=self.z0)[:, self.refband]
-        else:
-            return np.polynomial.polynomial.polyval(
-                z - par['z0'], self.gal_arr['pcoeff'].transpose(), tensor=False)
-
-    def kcorr_mean(self, z):
-        """K-correction using mean coefficients."""
-        if self.kcorr_method == 'sed':
-            return self.kc.kcorrect(redshift=z, coeffs=self.mean_kcoeffs,
-                                    band_shift=self.z0)[self.refband]
-        else:
-            return np.polynomial.polynomial.polyval(z - par['z0'], self.mean_pcoeffs)
-
-    def zdm(self, dmod, igal):
-        """Calculate redshift z corresponding to distance modulus dmod for galaxy i, solves
-        dmod = m - M = DM(z) + K(z) - Q(z-z0),
-        ie. including k-correction and luminosity evolution Q.
-        z is constrained to lie in range self.zmin, self.zmax."""
-
-        if self.dmodk(self.zmin, igal) - dmod > 0:
-            return self.zmin
-        if self.dmodk(self.zmax, igal) - dmod < 0:
-            return self.zmax
-        z = scipy.optimize.brentq(lambda z: self.dmodk(z, igal) - dmod,
-                                  self.zmin, self.zmax, xtol=1e-5, rtol=1e-5)
-        return z
-
-    def dmodk(self, z, igal):
-        """Returns the K- and e-corrected distance modulus for galaxy igal
-        DM(z) + k(z) - e(z)."""
-        dm =  cosmo.dist_mod(z) + self.kcorr_one(z, igal) - ecorr(z, self.Q)
-        return dm
-
-    def dmod_kmean(self, z):
-        """Returns the K- and e-corrected distance modulus for galaxy with mean SED
-        DM(z) + k(z) - e(z)."""
-        dm =  cosmo.dist_mod(z) + self.kcorr_mean(z) - ecorr(z, self.Q)
-        return dm
+        # Read Vmax values if present
+        try:
+            self.Vmax_raw = tbdata['Vmax_raw']
+            self.Vmax_dc = tbdata['Vmax_dc']
+            self.Vmax_dec = tbdata['Vmax_dec']
+        except:
+            pass
 
     def calc_limits(self, Q, vis=True):
         """Calculate absolute values and visibilty limits for each galaxy,
         returning a view of gal_arr for galaxies within absolute limits."""
 
+        zmin, zmax = par['zmin'], par['zmax']
         ngal = self.ngal
         z = self.gal_arr['z']
         sel = (z > 0)
 
-        kc = self.kc
+        kc = self.gal_arr['kc']
         kcoeff = self.gal_arr['kcoeff']
         self.gal_arr['absval_sel'] = (self.gal_arr['appval_sel'] -
-                                      cosmo.dist_mod(z) - self.gal_arr['kc'] + ecorr(z, Q))
+                                      cosmo.dist_mod(z) - kc + ecorr(z, Q))
         self.gal_arr['absval_lf'] = (self.gal_arr['appval_lf'] -
-                                     cosmo.dist_mod(z) - self.gal_arr['kc'] + ecorr(z, Q))
+                                     cosmo.dist_mod(z) - kc + ecorr(z, Q))
         if vis:
-            self.gal_arr['zlo'] = [self.zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i], i)
-                                   for i in range(ngal)]
-            self.gal_arr['zhi'] = [self.zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i], i)
-                                   for i in range(ngal)]
-        # pdb.set_trace()
+            self.gal_arr['zlo'] = [zdm(par['mlims'][0] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q) for i in range(ngal)]
+            self.gal_arr['zhi'] = [zdm(par['mlims'][1] - self.gal_arr['absval_sel'][i],
+                              kcoeff[i], (zmin, zmax), Q) for i in range(ngal)]
+
         # Galaxies within absolute limits
         absm = self.gal_arr['absval_lf']
         sel *= (par['Mmin'] <= absm) * (absm < par['Mmax'])
@@ -2013,54 +1772,13 @@ class Sample(object):
         idx = np.random.randint(0, self.ngal, self.ngal)
         return self.subset(idx)
     
-    def jackknife(self, gala, jack):
-        """Return a subsample with jackknife region jack omitted"""
+    def jacknife(self, jack):
+        """Return a subsample with jacknife region jack omitted"""
 
-        idx = (self.gala['jack'] != jack)
+        idx = (self.gal_arr['ra'] < ra_jack[jack]) + (self.gal_arr['ra'] >= ra_jack[jack] + 4.0)
         subset = self.subset(idx)
-        subset.area *= (self.njack-1)/self.njack
+        subset.area *= 8.0/9.0
         return subset
-
-    def lf1d(self, gala, V_max_corr, lf_bins):
-        """Calculates univariate LF for galaxies in gala."""
-        
-        absval = gala['absval_lf']
-        Mbin = lf_bins[:-1] + 0.5*np.diff(lf_bins)
-        # for i in xrange(len(Mbin)):
-        #     idx = (lf_bins[i] <= absval) * (absval < lf_bins[i+1])
-        #     Mbin[i] = np.mean(absval[idx])
-
-        Mhist, edges = np.histogram(absval, lf_bins)
-        whist, edges = np.histogram(absval, lf_bins, weights=gala['weight'])
-        wt = gala['weight']/V_max_corr
-        if par['lf_est'] == 'bin':
-            phi, edges = np.histogram(absval, lf_bins, weights=wt)
-            phi /= np.diff(lf_bins)
-            kde_bandwidth = 0
-        if par['lf_est'] == 'kde':
-            kde = pyqt_fit.kde.KDE1D(absval, lower=lf_bins[0], 
-                                    upper=lf_bins[-1], weights=wt)
-            phi = kde(Mbin) * wt.sum()
-            kde_bandwidth = kde.bandwidth
-
-        # Jackknife errors
-        njack = self.njack
-        phi_jack = np.zeros((njack, len(phi)))
-        for jack in range(njack):
-            idx = (gala['jack'] != jack)
-            if par['lf_est'] == 'bin':
-                phi_jack[jack, :], edges = np.histogram(
-                    absval[idx], lf_bins, weights=wt[idx])
-                phi_jack[jack, :] *= self.jack_area_corr[jack]/np.diff(lf_bins)
-            if par['lf_est'] == 'kde':
-                kde = pyqt_fit.kde.KDE1D(absval[idx], lower=lf_bins[0], 
-                                        upper=lf_bins[-1], weights=wt[idx])
-                phi_jack[jack, :] = kde(Mbin) * wt[idx].sum() * self.jack_area_corr[jack]
-        phi_err = np.sqrt((njack-1) * np.var(phi_jack, axis=0))
-        lf = {'Mbin': Mbin, 'Mhist': Mhist, 'whist': whist, 
-            'phi': phi, 'phi_err': phi_err, 'kde_bandwidth': kde_bandwidth}
-        return lf
-
 
 
 class Qty(object):
@@ -2116,7 +1834,7 @@ class Qty(object):
         # magnitude
         if self.kind == 'mag':
             appval = (absval + cosmo.dist_mod(z) + 
-                      kcorr(z, self.samp.kc, kcoeff) - ecorr(z, self.Q))
+                      kcorr(z, kcoeff) - ecorr(z, self.Q))
 
         # log radius: convert abs (kpc) to apparent (arcsec)
         if self.kind == 'radius':
@@ -2129,7 +1847,7 @@ class Qty(object):
         # Surface brightness
         if self.kind in ('sb', 'mu'):
             appval = (absval + 10*np.log10(1 + z) + 
-                      kcorr(z, self.samp.kc, kcoeff) - ecorr(z, self.Q))
+                      kcorr(z, kcoeff) - ecorr(z, self.Q))
 
         return appval
 
@@ -2292,17 +2010,17 @@ def read_vmax(infile, sel_dict, param, Vmax_type, Q='read'):
     return gal_arr
 
 
-def zdm(dmod, kc, kcoeff, zRange, Q):
+def zdm(dmod, kcoeff, zRange, Q):
     """Calculate redshift z corresponding to distance modulus dmod, solves
     dmod = m - M = DM(z) + K(z) - Q(z-z0),
     ie. including k-correction and luminosity evolution Q.
     z is constrained to lie in range zRange."""
 
-    if dmodk(zRange[0], kc, kcoeff, Q) - dmod > 0:
+    if dmodk(zRange[0], kcoeff, Q) - dmod > 0:
         return zRange[0]
-    if dmodk(zRange[1], kc, kcoeff, Q) - dmod < 0:
+    if dmodk(zRange[1], kcoeff, Q) - dmod < 0:
         return zRange[1]
-    z = scipy.optimize.brentq(lambda z: dmodk(z, kc, kcoeff, Q) - dmod,
+    z = scipy.optimize.brentq(lambda z: dmodk(z, kcoeff, Q) - dmod,
                               zRange[0], zRange[1], xtol=1e-5, rtol=1e-5)
     return z
 
@@ -2318,13 +2036,13 @@ def z_s_S(s, S, kcoeff, zRange):
 
     zlo = zRange[0]
     zhi = zRange[1]
-    if (S > s - 10*math.log10(1+zlo) - kcorr(zlo, self.samp.kc, kcoeff)): return zlo
-    if (S < s - 10*math.log10(1+zhi) - kcorr(zhi, self.samp.kc, kcoeff)): return zhi
+    if (S > s - 10*math.log10(1+zlo) - kcorr(zlo, kcoeff)): return zlo
+    if (S < s - 10*math.log10(1+zhi) - kcorr(zhi, kcoeff)): return zhi
     
     z = 0.5*(zlo + zhi)
     err = zhi - zlo
     while(err > tol):
-        if (S > s - 10*math.log10(1+z) - kcorr(z, self.samp.kc, kcoeff)):
+        if (S > s - 10*math.log10(1+z) - kcorr(z, kcoeff)):
             zhi = z
         else:
             zlo = z
@@ -2340,7 +2058,7 @@ def z_m_r_S(m, r, S, kcoeff, zRange):
     z is constrained to lie in range zRange."""
 
     def S_fun(m, r, z, kcoeff):
-        return m + 2.5*lg2pi + 5*r - 10*math.log10(1+z) - kcorr(z, self.samp.kc, kcoeff)
+        return m + 2.5*lg2pi + 5*r - 10*math.log10(1+z) - kcorr(z, kcoeff)
     tol = 1e-5
 
     zlo = zRange[0]
@@ -2455,14 +2173,14 @@ def z_m_s_R(m, s, R, zRange):
         err = zhi - zlo
     return z
 
-def z_M_s_R(M, s, R, kc, kcoeff, Q, zRange):
+def z_M_s_R(M, s, R, kcoeff, Q, zRange):
     """Calculate redshift at which a galaxy of absolute mag M and
     apparent surface brightness s has given absolute log radius R.
     Solves R = R_fun(M, s, z)
     z is constrained to lie in range zRange."""
 
     def R_fun(M, s, z):
-        return (0.2*(s - (M + dmodk(z, kc, kcoeff, Q)) - 2.5 * lg2pi) +
+        return (0.2*(s - (M + dmodk(z, kcoeff, Q)) - 2.5 * lg2pi) +
                 math.log10(radfac * cosmo.da(z)))
     
     tol = 1e-5
@@ -2482,19 +2200,15 @@ def z_M_s_R(M, s, R, kc, kcoeff, Q, zRange):
         err = zhi - zlo
     return z
 
-def dmodk(z, kc, kcoeff, Q):
+def dmodk(z, kcoeff, Q):
     """Returns the K- and e-corrected distance modulus 
     DM(z) + k(z) - e(z)."""
-    dm =  cosmo.dist_mod(z) + kcorr(z, kc, kcoeff) - ecorr(z, Q)
+    dm =  cosmo.dist_mod(z) + kcorr(z, kcoeff) - ecorr(z, Q)
     return dm
 
-def kcorr_poly(z, kcoeff):
+def kcorr(z, kcoeff):
     """K-correction from polynomial fit."""
     return np.polynomial.polynomial.polyval(z - par['z0'], kcoeff)
-
-def kcorr(z, kc, kcoeff):
-    """K-correction from SED reconstruction."""
-    return kc.kcorrect(redshift=z, coeffs=kcoeff, band_shift=par['z0'])[kc.refband]
 
 def ecorr(z, Q):
     """e-correction."""
@@ -2523,9 +2237,9 @@ def simcat(infile='../auto/kcorrz01.fits', outfile='jswml_sim.fits',
 
     def gam_dv(z):
         """Gamma function times volume element to integrate."""
-        M1 = mrange[1] - cosmo.dist_mod(z) - kcorr(z, self.samp.kc, pc_med) + Q*(z-par['z0'])
+        M1 = mrange[1] - cosmo.dist_mod(z) - kcorr(z, pc_med) + Q*(z-par['z0'])
         M1 = max(min(Mrange[1], M1), Mrange[0])
-        M2 = mrange[0] - cosmo.dist_mod(z) - kcorr(z, self.samp.kc, pc_med) + Q*(z-par['z0'])
+        M2 = mrange[0] - cosmo.dist_mod(z) - kcorr(z, pc_med) + Q*(z-par['z0'])
         M2 = max(min(Mrange[1], M2), Mrange[0])
         L1 = 10**(0.4*(Mstar - M1))
         L2 = 10**(0.4*(Mstar - M2))
@@ -2602,7 +2316,7 @@ def simcat(infile='../auto/kcorrz01.fits', outfile='jswml_sim.fits',
         plt.plot(zbin + par['z0'], k_fit, '--')
         plt.xlabel('z')
         plt.ylabel('K(z)')
-        plt.show()
+        plt.draw()
     else:
         nk = 1
         ra_gal = np.zeros(1)
@@ -2663,7 +2377,7 @@ def simcat(infile='../auto/kcorrz01.fits', outfile='jswml_sim.fits',
         # K-corrections for remaining objects
         kidx = np.random.randint(0, nk, nsel)
         pc_ran = pc[kidx, :]
-        kc = np.array([kcorr(z[i], self.samp.kc, pc_ran[i, :]) for i in range(nsel)])
+        kc = np.array([kcorr(z[i], pc_ran[i, :]) for i in range(nsel)])
         mapp += kc
         ra = ra_gal[kidx]
         sel = (mapp >= mrange[0]) * (mapp < mrange[1])
@@ -2850,7 +2564,7 @@ def sim_av(evroot='lf_kde_z01_{}_{}.dat', lfroot='lf_bin_{}_{}.fits',
         ax.set_xlabel(label)
         ax.set_ylabel(r'$\Phi(M) / h^3 {\rm Mpc}^{-3}$')
 
-        plt.show()
+        plt.draw()
 
 def sim_test(file='sim.fits'):
     """Check k-corrections in simcat"""
@@ -2864,10 +2578,10 @@ def sim_test(file='sim.fits'):
     kc = tbdata.field('kcorr_r')
     pc = tbdata.field('pcoeff_r')[:, ::-1]  # NB sims still have reversed coeffs
     ngal = len(pc)
-    kc_poly = kcorr(z, self.samp.kc, pc)
+    kc_poly = kcorr(z, pc)
     plt.clf()
     plt.scatter(kc, kc - kc_poly, 0.1)
-    plt.show()
+    plt.draw()
     hdulist.close()
 
 def ktest(file='kcorrz01.fits', zrange=(0.0, 0.5)):
@@ -2895,7 +2609,7 @@ def ktest(file='kcorrz01.fits', zrange=(0.0, 0.5)):
     plt.plot(zbin + par['z0'], k_fit2, ':')
     plt.xlabel('z')
     plt.ylabel('K(z)')
-    plt.show()
+    plt.draw()
     pdb.set_trace()
 
 def reformat(infile='sim_noev_nok.fits', outfile='sim_noev_nok.txt'):
@@ -2945,7 +2659,7 @@ def plot_ascii():
     alpha, alphaErr, Mstar, MstarErr, lpstar, lpstarErr, chi2, nu = fitpars
     lum.plotSchec(alpha, Mstar, 10**lpstar, lf[:,0][0], lf[:,0][-1], 
                   lineStyle='--', axes=ax)
-    plt.show()
+    plt.draw()
 
 
 def jack_err(ests):
@@ -2963,8 +2677,9 @@ def jack_err(ests):
 
 def plot(infile='jswml.dat', Mlimits=(-11, -24), plot_file=None):
     """Plot delta(z) and phi(M) from jswml output."""
-
-    dat = pickle.load(open(infile, 'rb'))
+    f = open(infile, 'r')
+    dat = pickle.load(f)
+    f.close()
 
     plt.clf()
     ax = plt.subplot(2, 1, 1)
@@ -2983,16 +2698,17 @@ def plot(infile='jswml.dat', Mlimits=(-11, -24), plot_file=None):
     ax.semilogy( )
     ndim = len(dat['phi'].shape)
     if ndim > 1:
-        step = dat['lf_bins'][0][1] - dat['lf_bins'][0][0]
+        step = dat['edges'][0][1] - dat['edges'][0][0]
+        Mbin = dat['edges'][0][:-1] + 0.5*step
         absStep = 1.0
         for i in range(ndim):
-            absStep *= (dat['lf_bins'][i][1] - dat['lf_bins'][i][0])
+            absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
         phi = np.sum(dat['phi'], axis=tuple(range(1, ndim))) * absStep/step
         phi_err = (np.sum(dat['phi_err']**2, axis=tuple(range(1, ndim)))**0.5 * 
                         absStep/step)
     else:
-        step = dat['lf_bins'][1] - dat['lf_bins'][0]
-        Mbin = dat['Mbin']
+        step = dat['edges'][1] - dat['edges'][0]
+        Mbin = dat['edges'][:-1] + 0.5*step
         phi = dat['phi']
         phi_err = dat['phi_err']
     ax.errorbar(Mbin, phi, phi_err, fmt='o')
@@ -3000,8 +2716,7 @@ def plot(infile='jswml.dat', Mlimits=(-11, -24), plot_file=None):
     alpha, alphaErr, Mstar, MstarErr, lpstar, lpstarErr, chi2, nu = fitpars
     lum.plotSchec(alpha, Mstar, 10**lpstar, Mbin[0], Mbin[-1],
                   lineStyle='--', axes=ax)
-    # label = plot_label(dat['qty_list'][0].name)[1]
-    label = plot_label(dat['par']['param'])
+    label = plot_label(dat['qty_list'][0].name)[1]
     ax.set_xlabel(label)
     ax.set_ylabel(r'$\Phi(M) / h^3 {\rm Mpc}^{-3}$')
     if plot_file is None:
@@ -3022,7 +2737,7 @@ def plot(infile='jswml.dat', Mlimits=(-11, -24), plot_file=None):
         ax.text(0.1, 0.1, r'$Q = {:5.2f} \pm {:5.2f}$'.format(
                 dat['Q'], dat['Q_err']),
                 transform = ax.transAxes)
-    plt.show()
+    plt.draw()
     if plot_file:
         fig = plt.gcf()
         fig.set_size_inches(5, 5)
@@ -3278,7 +2993,7 @@ def ev_table(evroot='ev_{}_petro_fit_{}.dat', outfile='ev_table.tex'):
     fout.close()
     plt.xlabel(r'$P + Q$')
     plt.ylabel(r'$\chi^2$')
-    plt.show()
+    plt.draw()
 
 def lf_table(lfroot='lf_{}_{}.dat', outfile='lf_table.tex'):
     """Table of LF parameters by colour."""
@@ -3413,7 +3128,7 @@ def plot_lf_z(lftemp='lf_r_{}_{}.dat', ztemp='lf_r_{}_{}_z_{}_{}.dat',
     axes[1].set_ylim(0, 1.99)
     axes[1].set_ylabel(r'$\phi(M_z)/\phi(M_{\rm tot})$')
     axes[1].set_xlabel(plot_label(lf['param'])[1])
-    plt.show()
+    plt.draw()
     print('chi^2, nu =', lf_chi2, nu)
 
     if plot_file:
@@ -3465,7 +3180,7 @@ def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
         ax.semilogy( )
         ax.text(0.1, 0.8, label, transform=ax.transAxes)
     ax.set_xlabel(r'$M_r$')
-    plt.show()
+    plt.draw()
     fig = plt.gcf()
     fig.set_size_inches(plot_size)
     plot_file = 'lf_zslices.pdf'
@@ -3484,7 +3199,7 @@ def plot_lf_zslices(lftemp='lfr_zslice_{}_{}.dat', Mlims=(-24, -17),
                 np.array([fitlist[iz][5] for iz in range(6)]).T)
     ax.set_ylabel(r'$\log \phi^*$')
     ax.set_xlabel('Redshift')
-    plt.show()
+    plt.draw()
     fig = plt.gcf()
     fig.set_size_inches(plot_size)
     plot_file = 'lf_ztrends.pdf'
@@ -3560,7 +3275,7 @@ def plot_smf_z(reftemp='smf_{}.dat', filetemp='smf_{}_{}_{}.dat',
             axes[irow, icol].yaxis.set_major_formatter(
                 matplotlib.ticker.NullFormatter())
 
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -3739,13 +3454,13 @@ def plotnd(param_list, schec_guess=None, plot_lab=None, plot_file=None):
         ax.semilogy( )
 
         qtyi = dat['qty_list'][iq]
-        step = dat['lf_bins'][iq][1] - dat['lf_bins'][iq][0]
-        Mbin = dat['lf_bins'][iq][:-1] + 0.5*step
+        step = dat['edges'][iq][1] - dat['edges'][iq][0]
+        Mbin = dat['edges'][iq][:-1] + 0.5*step
         ndim = len(dat['phi'].shape)
         if ndim > 1:
             absStep = 1.0
             for i in range(ndim):
-                absStep *= (dat['lf_bins'][i][1] - dat['lf_bins'][i][0])
+                absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
             bincorr = absStep/qtyi.absStep
             sumdims = list(range(ndim))
             sumdims.remove(iq)
@@ -3785,7 +3500,7 @@ def plotnd(param_list, schec_guess=None, plot_lab=None, plot_file=None):
         except:
             pass
 
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -3977,7 +3692,7 @@ def gridplot(panels, clevels=[1, 4, 9], colours='kbr',
         ax.set_ylabel(r'$Q_e\ ({\rm mag})$')
         ip += 1
     ax.set_xlabel(r'$P_e$')
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -4044,7 +3759,7 @@ def gridplot_av(filenames=('lf_kde_z01_post_{}.dat', 'lf_kde_z01_lfchi_{}.dat'),
             P.mean(), P.std(), Q.mean(), Q.std()))
     ax.set_xlabel(r'$P_e$')
     plt.subplots_adjust(hspace=0.0)
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -4115,7 +3830,7 @@ def ev_lin_fit(infile, nfit=2, plot=False):
         plt.ylim(Qmin, Qmax)
         ax.set_ylabel(r'$Q$')
         ax.set_xlabel(r'$P$')
-        plt.show()
+        plt.draw()
     return m, c
 
 def ev_lin_fit_sims(filetemp='lf_kde_z01_{}_{}.dat'):
@@ -4145,7 +3860,7 @@ def likeplot(infile):
     ax.plot(Qa, Pa)
     ax.set_xlabel('Q')
     ax.set_ylabel('P')
-    plt.show()
+    plt.draw()
 
 def likeplot_multi(filename='like_post_{}.dat', nsim=10):
     """Analysis of multiple 1d likelihood distributions."""
@@ -4184,7 +3899,7 @@ def likeplot_multi(filename='like_post_{}.dat', nsim=10):
     ax.plot(Qa, Pav)
     ax.set_xlabel('Q')
     ax.set_ylabel('P')
-    plt.show()
+    plt.draw()
     
 def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
     """Return 2d distribution fn, projecting over any other dimensions,
@@ -4215,7 +3930,7 @@ def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
         print('raw phi_err range:', np.min(dat['phi_err']), np.max(dat['phi_err']))
         absStep = 1.0
         for i in range(ndim):
-            absStep *= (dat['lf_bins'][i][1] - dat['lf_bins'][i][0])
+            absStep *= (dat['edges'][i][1] - dat['edges'][i][0])
         bincorr = absStep/qtyi.absStep/qtyj.absStep
         sumdims = list(range(ndim))
         sumdims.remove(iq)
@@ -4249,8 +3964,8 @@ def phi2d(infile, iq=0, jq=1, ired=1, jred=1):
         vol = np.zeros((qtyj.nabs, qtyi.nabs))
         for j in range(qtyj.nabs):
             for i in range(qtyi.nabs):
-                zloi = zdm(qtyi.appMin-vic[i], qtyi.kc, qtyi.kmean, (zmin, zmax), qtyi.Q)
-                zhii = zdm(qtyi.appMax-vic[i], qtyi.kc, qtyi.kmean, (zmin, zmax), qtyi.Q)
+                zloi = zdm(qtyi.appMin-vic[i], qtyi.kmean, (zmin, zmax), qtyi.Q)
+                zhii = zdm(qtyi.appMax-vic[i], qtyi.kmean, (zmin, zmax), qtyi.Q)
 
                 # mag-radius
                 if qtyj.kind == 'radius':
@@ -4328,7 +4043,7 @@ def plot2d(infile, iq=0, jq=1, ired=1, jred=1, ngmin=16, vol_contour=(1800,),
     plt.xlabel(plot_label(qtyi.name)[1])
     plt.ylabel(plot_label(qtyj.name)[1])
     print('ylabel:', plot_label(qtyj.name)[1], qtyj.name)
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -4533,7 +4248,7 @@ def plot_slices(param_list, ired=1, jred=1, p0=(0.5, 0.1, 0.01),
                 iplot += 1
         ifile += 1
         fit_pars.append((Mbin, mean, mean_err, sigma, sigma_err))
-    plt.show()
+    plt.draw()
 
     if slice_file:
         fig = plt.gcf()
@@ -4575,7 +4290,7 @@ def plot_slices(param_list, ired=1, jred=1, p0=(0.5, 0.1, 0.01),
         plt.ylim(trends_range)
     if plot_comp:
         plot_comp()
-    plt.show()
+    plt.draw()
 
     if trends_file:
         fig = plt.gcf()
@@ -4732,13 +4447,13 @@ def test_zlim(m=18, z=0.1, mlim=19.8, zmin=0.002, zmax=0.5, kcoeff=(0.0,)):
     zlim = []
     for Q in np.linspace(0.0, 2.0):
         Ql.append(Q)
-        M = m - cosmo.dist_mod(z) - kcorr(z, self.samp.kc, kcoeff) + ecorr(z, Q)
+        M = m - cosmo.dist_mod(z) - kcorr(z, kcoeff) + ecorr(z, Q)
         zlim.append(zdm(mlim - M, kcoeff, (zmin, zmax), Q))
     plt.clf()
     plt.plot(Ql, zlim)
     plt.xlabel('Q')
     plt.ylabel('zlim')
-    plt.show()
+    plt.draw()
 
 
 def Nz_plot_lum(inroot='ranz_lum_c_{}_{}.dat', plot_file=None,
@@ -4824,7 +4539,7 @@ def Nz_plot(param_list=(('All', (('ranz_colour_c.dat', 'k'),)),
 
     fig.subplots_adjust(hspace=0)
     ax.set_xlabel('Redshift')
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -4852,7 +4567,7 @@ def Nz_plot_schec(ranfile='ranz_colour_c.dat', schecfile='schec_nz.txt',
     plt.xlabel('Redshift')
     plt.ylabel('Frequency')
 
-    plt.show()
+    plt.draw()
 
     if plot_file:
         fig = plt.gcf()
@@ -4886,7 +4601,7 @@ def Nz_plot_mock(inroot='ranz_{}_{}_{}.dat'):
             ax.plot(info['zcen'], ranhist)
 #            ax.text(0.95, 0.8, infile, ha='right', transform=ax.transAxes)
     fig.subplots_adjust(hspace=0)
-    plt.show()
+    plt.draw()
 
 
 def weight_hist(infile='kcorrz01.fits', outfile='weights.fits', nbins=50,
@@ -4938,7 +4653,7 @@ def weight_hist(infile='kcorrz01.fits', outfile='weights.fits', nbins=50,
     plt.plot((logwmax, logwmax), (1, 1e6))
     plt.xlabel(r'log$_{10}$ weight')
     plt.ylabel('Frequency')
-    plt.show()
+    plt.draw()
 
     hiwt = weight > wmax
     f = open('high_weight.txt', 'w')
