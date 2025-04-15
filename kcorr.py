@@ -1,10 +1,12 @@
-from astropy.table import Table
+from astropy.table import Table, join
 from kcorrect.kcorrect import Kcorrect
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial import Polynomial
 import pdb
 import util
+
+metadata_conflicts = 'silent'  # Alternatives are 'warn', 'error'
 
 def kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
          z0, pdeg, zrange, outfile):
@@ -95,11 +97,9 @@ def kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
 
     outtbl = Table([cataid, redshift, k, coeffs, pcoeffs],
                    names=('CATAID', 'Z', 'Kcorr', 'kcoeffs', 'pcoeffs'))
-    outtbl.meta = {'RESPONSES': responses}
+    outtbl.meta = {'RESPONSES': responses, 'z0': z0, 'refband': refband}
     outtbl.write(outfile, overwrite=True)
     plt.show()
-
-
 
 
 def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr.fits', nband=5,
@@ -138,6 +138,64 @@ def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr.fits', nband=5,
 
     kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
          z0, pdeg, zrange, outfile)
+
+
+def kcorr_gII(infile='TilingCatv46.fits', outfile='gamaII_kcorrz01.fits',
+          zrange=[0, 1], z0=0.1, pdeg=4):
+    """K-corrections for GAMA-II catalogues."""
+
+    nband = 5
+    responses = ['sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0', 'sdss_z0']
+    fnames = 'ugriz'
+    refband = 2
+    refclr = [2, 4]
+
+    tbl = Table.read(infile)
+    t = Table.read('ApMatchedCatv06.fits')
+    t.keep_columns(['CATAID',
+                    'FLUX_AUTO_u', 'FLUX_AUTO_g', 'FLUX_AUTO_r', 'FLUX_AUTO_i', 'FLUX_AUTO_z',
+                    'FLUXERR_AUTO_u', 'FLUXERR_AUTO_g', 'FLUXERR_AUTO_r',
+                    'FLUXERR_AUTO_i', 'FLUXERR_AUTO_z'])
+    tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
+    t = Table.read('GalacticExtinctionv03.fits')
+    t.remove_columns(['RA', 'DEC'])
+    tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
+    t = Table.read('DistancesFramesv14.fits')
+    t.remove_columns(['RA', 'DEC', 'NQ'])
+    tbl = join(tbl, t, keys='CATAID', metadata_conflicts=metadata_conflicts)
+
+    sel = ((tbl['SURVEY_CLASS'] > 3) * (tbl['NQ'] >= 3) *
+            (tbl['Z_TONRY'] >= zrange[0]) * (tbl['Z_TONRY'] < zrange[1]))
+    tbl = tbl[sel]
+    ngal = len(tbl)
+    cataid = tbl['CATAID']
+    redshift = tbl['Z_TONRY']
+    flux, flux_err = np.zeros((ngal, nband)), np.zeros((ngal, nband))
+
+    # Extinction corrections
+    i = 0
+    for fname in fnames:
+        flux[:, i] = tbl[f'FLUX_AUTO_{fname}'] * 10**(0.4 * tbl[f'A_{fname}'])
+        flux_err[:, i] = tbl[f'FLUXERR_AUTO_{fname}']
+        i += 1
+
+    kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
+         z0, pdeg, zrange, outfile)
+
+
+def par_to_dat(infile, outfile):
+    """Convert response function files from .par to .dat format.
+    Assumes that .par files 5 lines describing structure before data starts
+    on line 6."""
+
+    dat = np.loadtxt(infile, skiprows=5, usecols=(1, 2))
+    np.savetxt(outfile, dat, fmt=(('| %7.1f', '   %8.6f')), delimiter=' | ',
+               newline=' |\n', header='| lambda  |    pass    ', comments='')
+    
+def plot_resp(infile):
+    dat = np.loadtxt(infile, skiprows=1, delimiter='|', usecols=(1, 2))
+    plt.plot(dat[:,0], dat[:,1])
+    plt.show()
 
 
 def par_to_dat(infile, outfile):

@@ -9,7 +9,7 @@
 #SBATCH -e jswml."%A_%a".err
 
 #Slurm Email Job Status
-#SBATCH --mail-user $USER@sussex.ac.uk
+#SBATCH --mail-user loveday@sussex.ac.uk
 #SBATCH --mail-type=ALL
 
 #Request 5 hours run time

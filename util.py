@@ -65,17 +65,18 @@ class CosmoLookup():
     """Distance and volume-element lookup tables.
     NB volume element is differential per unit solid angle."""
 
-    def __init__(self, H0, omega_l, zlimits, P=1, nz=1000, ev_model='z'):
+    # def __init__(self, H0, omega_l, zlimits, P=1, nz=1000, ev_model='z'):
+    def __init__(self, H0, omega_l, zlimits, nz=1000):
         cosmo = FlatLambdaCDM(H0=H0, Om0=1-omega_l)
-        self._P = P
-        self._ev_model = ev_model
+        # self._P = P
+        # self._ev_model = ev_model
         self._H0 = H0
         self._zrange = zlimits
         self._z = np.linspace(zlimits[0], zlimits[1], nz)
         self._dm = cosmo.comoving_distance(self._z).value
         self._dV = cosmo.differential_comoving_volume(self._z).value
         self._dist_mod = cosmo.distmod(self._z).value
-        print('CosmoLookup: H0={}, Omega_l={}, P={}'.format(H0, omega_l, P))
+        print(f'CosmoLookup: H0={H0}, Omega_l={omega_l}')
 
     def dm(self, z):
         """Comoving distance."""
@@ -103,22 +104,22 @@ class CosmoLookup():
         dm = self.dist_mod(z) + kcorr(z, kcoeff) - ecorr(z)
         return dm
 
-    def den_evol(self, z):
-        """Density evolution at redshift z."""
-        if self._ev_model == 'none':
-            try:
-                return np.ones(len(z))
-            except TypeError:
-                return 1.0
-        if self._ev_model == 'z':
-            return 10**(0.4*self._P*z)
-        if self._ev_model == 'z1z':
-            return 10**(0.4*self._P*z/(1+z))
+    # def den_evol(self, z):
+    #     """Density evolution at redshift z."""
+    #     if self._ev_model == 'none':
+    #         try:
+    #             return np.ones(len(z))
+    #         except TypeError:
+    #             return 1.0
+    #     if self._ev_model == 'z':
+    #         return 10**(0.4*self._P*z)
+    #     if self._ev_model == 'z1z':
+    #         return 10**(0.4*self._P*z/(1+z))
 
-    def vol_ev(self, z):
-        """Volume element multiplied by density evolution."""
-        pz = self.dV(z) * self.den_evol(z)
-        return pz
+    # def vol_ev(self, z):
+    #     """Volume element multiplied by density evolution."""
+    #     pz = self.dV(z) * self.den_evol(z)
+    #     return pz
 
     def z_at_dm(self, dm):
         """Redshift at corresponding comoving distance."""
@@ -941,10 +942,9 @@ def cic_lf(mabs, wt, Mbins):
     wt: array of 1/Vmax (and any other) weights
     Mbins: array of bin edges
     
-    Returns: hist, phi, err, Mmean, Mmean_wt
+    Returns: hist, phi
     hist: fractional number of galaxies in each bin
     phi: the LF
-    err: error
     """
 
     nbins = len(Mbins) - 1
@@ -966,8 +966,7 @@ def cic_lf(mabs, wt, Mbins):
     last = (p >= nbins-1)
     hist[nbins-1] += len(wt[last])
     phi[nbins-1] += np.sum(wt[last])
-    err = phi/hist**0.5
-    return hist, phi, err
+    return hist, phi
 
 
 def lf_pred(Mbins, schec_fun, schec_pars):
