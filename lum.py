@@ -5762,9 +5762,10 @@ def schecFit(M, phi, phiErr, schec_pars, afix=False, likeCont=False):
     else:
         return (alpha, alphaErr, Mstar, MstarErr, lpstar, lpstarErr, chi2, nu)
         
-def schecResid(schec_pars, M, phi, phiErr):
+def schecResid(schec_pars, M, phi, phiErr, lf_est='bin'):
     """Return chi^2 residual between binned phi estimate and Schechter fit."""
     (alpha, Mstar, lpstar) = schec_pars
+    # phi_pred = util.lf_pred(Mbins, schec_fun, schec_pars)    
     fc = 0
     for ibin in range(len(M)):
         if phiErr[ibin] > 0:

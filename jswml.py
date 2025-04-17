@@ -2072,6 +2072,7 @@ class Sample(object):
             kde_bandwidth = kde.bandwidth
         if par['lf_est'] == 'cic':
             hist, phi = util.cic_lf(absval, wt, Mbins)
+            phi /= np.diff(Mbins)
             kde_bandwidth = 0
 
         # Jackknife errors
@@ -2089,6 +2090,7 @@ class Sample(object):
                 phi_jack[jack, :] = kde(Mbin) * wt[idx].sum() * self.jack_area_corr[jack]
             if par['lf_est'] == 'cic':
                 hist, phi_jack[jack, :] = util.cic_lf(absval[idx], wt[idx], Mbins)
+                phi_jack[jack, :] *= self.jack_area_corr[jack]/np.diff(Mbins)
         phi_err = np.sqrt((njack-1) * np.var(phi_jack, axis=0))
         # pdb.set_trace()
         lf = {'Mbin': Mbin, 'Mhist': Mhist, 'whist': whist, 
