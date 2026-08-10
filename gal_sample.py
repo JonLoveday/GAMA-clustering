@@ -101,8 +101,8 @@ class Kcorr():
                 flux_mean = flux[close[ibad][1:], :].mean(axis=0)
                 ivar_mean = ivar[close[ibad][1:], :].sum(axis=0)
                 coeffs[bad, :] = kc.fit_coeffs(redshift[bad], flux_mean, ivar_mean)
-                color = next(ax._get_lines.prop_cycler)['color']
-                plt.errorbar(range(len(resp_in)), flux[ibad, :], yerr=flux_err[ibad, :], color=color)
+                plt.errorbar(range(len(resp_in)), flux[ibad, :], yerr=flux_err[ibad, :])
+                color = plt.gca().lines[-1].get_color()
                 plt.plot(range(len(resp_in)), flux_mean, color=color)
             plt.show()
 
@@ -222,7 +222,7 @@ class GalSample():
 
     def __init__(self, H0=100, omega_l=0.75, Q=1, P=1, ez0=0,
                  mlimits=(0, 19.8), zlimits=(0.002, 0.65)):
-        self.cosmo = util.CosmoLookup(H0, omega_l, zlimits, P=P)
+        self.cosmo = util.CosmoLookup(H0, omega_l, zlimits)
         self.mlimits = list(mlimits)
         self.zlimits = list(zlimits)
         self.vol_limited = False
@@ -256,7 +256,7 @@ class GalSample():
 
     def abs_calc(self):
         """Calculate and save absolute mags."""
-        self.absmag = self.appmag - self.cosmo.dist_mod(seld.z) - self.kcorr.kcorr + ecorr(z)
+        self.absmag = self.appmag - self.cosmo.dist_mod(self.z) - self.kcorr.kcorr + self.ecorr(self.z)
 
     def app_calc(self, z, igal):
         """Return apparent magnitude galaxy igal would have at redshift z."""

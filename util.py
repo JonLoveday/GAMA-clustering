@@ -74,6 +74,7 @@ class CosmoLookup():
         self._zrange = zlimits
         self._z = np.linspace(zlimits[0], zlimits[1], nz)
         self._dm = cosmo.comoving_distance(self._z).value
+        self._V = cosmo.comoving_volume(self._z).value
         self._dV = cosmo.differential_comoving_volume(self._z).value
         self._dist_mod = cosmo.distmod(self._z).value
         print(f'CosmoLookup: H0={H0}, Omega_l={omega_l}')
@@ -93,6 +94,10 @@ class CosmoLookup():
     def dV(self, z):
         """Volume element per unit solid angle."""
         return np.interp(z, self._z, self._dV)
+
+    def V(self, z):
+        """Comoving volume (for a sphere)."""
+        return np.interp(z, self._z, self._V)
 
     def dist_mod(self, z):
         """Distance modulus."""

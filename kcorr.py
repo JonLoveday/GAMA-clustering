@@ -1,15 +1,44 @@
+from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table, join
+import kcorrect
+import kcorrect.template
 from kcorrect.kcorrect import Kcorrect
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial import Polynomial
+import os
 import pdb
 import util
 
 metadata_conflicts = 'silent'  # Alternatives are 'warn', 'error'
 
-def kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
-         z0, pdeg, zrange, outfile):
+def plot_templates():
+    filename = os.path.join(kcorrect.KCORRECT_DIR, 'data',
+                            'templates', 'kcorrect-default-v4.fits')
+    templates = kcorrect.template.Template(filename=filename)
+    print(templates.restframe_wave)
+    plt.clf()
+    for itemp in range(5):
+        plt.plot(templates.restframe_wave, templates.restframe_flux[itemp, :])
+    plt.semilogy()
+    plt.xlabel('Wavelenth [A]')
+    plt.ylabel('Flux')
+    plt.show()
+
+
+def plot_response(resp_name):
+    filename = os.path.join(kcorrect.KCORRECT_DIR, 'data',
+                            'responses', resp_name)
+    data = np.loadtxt(skiprows=1, delimeter='|')
+    plt.plot(data[1, :], data[2, :])
+    plt.clf()
+    plt.xlabel('Wavelenth [A]')
+    plt.ylabel('Response')
+    plt.show()
+
+
+def kfit(responses, id, redshift, flux, flux_err, refband, refclr,
+         z0, pdeg, zrange, outfile, id_col='CATAID'):
     """Fit K-correction SED and polynomial coeffs."""
 
     nband = len(responses)
@@ -26,15 +55,17 @@ def kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
     print('Fixed ', len(flux[fix]), 'missing fluxes')
 
     # Fit SED coeffs
-    coeffs = np.zeros((ngal, ncoeff))
     kc = Kcorrect(responses=responses)
+    # coeffs = kc.fit_coeffs(redshift, flux, ivar)
+    coeffs = np.zeros((ngal, ncoeff))
     for i, r in enumerate(redshift):
         try:
             coeffs[i, :] = kc.fit_coeffs(redshift[i], flux[i, :], ivar[i, :])
         except RuntimeError:
-            pass
+            print('RuntimeError i =', i)
 
-    # For galaxies that couldn't be fit, use average SED of galaxies close in redshift and ref colour
+    # For galaxies that couldn't be fit (all coeffs zero),
+    # use average SED of galaxies close in redshift and ref colour
     ztol = 0.1
     clr = flux[:, refclr[0]]/flux[:, refclr[1]]
     bad = np.nonzero(coeffs.sum(axis=-1) == 0)[0]
@@ -95,8 +126,8 @@ def kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
             plt.scatter(redshifts, kz[:, refband], s=1)
             plt.plot(redshifts, fit, '-')
 
-    outtbl = Table([cataid, redshift, k, coeffs, pcoeffs],
-                   names=('CATAID', 'Z', 'Kcorr', 'kcoeffs', 'pcoeffs'))
+    outtbl = Table([id, redshift, k, coeffs, pcoeffs],
+                   names=(id_col, 'Z', 'Kcorr', 'kcoeffs', 'pcoeffs'))
     outtbl.meta = {'RESPONSES': responses, 'z0': z0, 'refband': refband}
     outtbl.write(outfile, overwrite=True)
     plt.show()
@@ -138,6 +169,112 @@ def kcorr_gkv(infile='gkvScienceCatv02.fits', outfile='kcorr.fits', nband=5,
 
     kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
          z0, pdeg, zrange, outfile)
+
+
+def kcorr_devils(z_infile='D10MasterRedshifts.fits', p_infile='D10ProFoundPhotometry.fits', outfile='kcorr.fits', nband=9,
+                 zrange=[0.0, 2], z0=0, pdeg=4):
+    """K-corrections for DEVILS catalogues."""
+
+    if nband == 13:
+        responses = ['galex_FUV', 'galex_NUV',
+                     'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
+                     'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
+                     'wise_w1', 'wise_w2']
+        fnames = ['FUVt', 'NUVt', 'ut', 'gt', 'rt', 'it',
+                  'Zt', 'Yt', 'Jt', 'Ht', 'Kt', 'W1t', 'W2t']
+        refband = 4
+        refclr = [4, 6]
+    else:
+        responses = ['capak_cfht_megaprime_sagem_u', 'subaru_suprimecam_g', 'subaru_suprimecam_r', 'subaru_suprimecam_i', 'subaru_suprimecam_z',
+                     'vista_y', 'vista_j', 'vista_h', 'vista_k']
+        fnames = ['u', 'g', 'r', 'i', 'z', 'Y', 'J', 'H', 'Ks']
+        refband = 5
+        refclr = [2, 4]
+
+    ztbl = Table.read(z_infile)
+    print(len(ztbl), 'galaxies read')
+    sel = ((ztbl['zBest'] > zrange[0]) * (ztbl['zBest'] < zrange[1]))
+    ztbl = ztbl[sel]
+    ngal = len(ztbl)
+    print(ngal, f'galaxies in redshift range {zrange}')
+    ptbl = Table.read(p_infile)
+    tbl = join(ztbl, ptbl, keys='UID')
+    print(len(ztbl), f'galaxies after joining with phot table')
+
+    id_col = 'UID'
+    id = tbl[id_col]
+    redshift = np.array(tbl['zBest'])
+    # pdb.set_trace()
+
+    flux, flux_err = np.zeros((ngal, nband)), np.zeros((ngal, nband))
+    i = 0
+    for fname in fnames:
+        flux[:, i] = tbl[f'flux_{fname}']
+        flux_err[:, i] = tbl[f'flux_err_{fname}']
+        i += 1
+
+    kfit(responses, id, redshift, flux, flux_err, refband, refclr,
+         z0, pdeg, zrange, outfile, id_col)
+
+
+def kcorr_shark(infile='waves_wide_gals.parquet',
+                outfile='waves_wide_kcorr.fits', nband=5,
+                zrange=[0, 1], z0=0, pdeg=4):
+    """K-corrections for Shark mock catalogues."""
+
+    if nband == 13:
+        responses = ['galex_FUV', 'galex_NUV',
+                     'sdss_u0', 'sdss_g0', 'sdss_r0', 'sdss_i0',
+                     'vista_z', 'vista_y', 'vista_j', 'vista_h', 'vista_k',
+                     'wise_w1', 'wise_w2']
+        fnames = ['FUV_GALEX', 'NUV_GALEX', 'u_VST', 'g_VST', 'r_VST', 'i_VST',
+                  'Z_VISTA', 'Y_VISTA', 'J_VISTA', 'H_VISTA', 'K_VISTA',
+                  'W1_WISE', 'W2_WISE']
+        refband = 6
+        refclr = [4, 6]
+    else:
+        responses = ['vst_u', 'vst_g', 'vst_r', 'vst_i', 'vista_z']
+        fnames = ['u_VST', 'g_VST', 'r_VST', 'i_VST', 'Z_VISTA']
+        refband = 4
+        refclr = [3, 4]
+
+    tbl = Table.read(infile)
+    sel = (tbl['zobs'] > zrange[0]) * (tbl['zobs'] < zrange[1])
+    tbl = tbl[sel]
+    ngal = len(tbl)
+    cataid = tbl['id_galaxy_sky']
+    redshift = tbl['zobs']
+
+    flux, flux_err = np.zeros((ngal, nband)), np.zeros((ngal, nband))
+    i = 0
+    for fname in fnames:
+        mag = tbl[f'total_ap_dust_{fname}']
+        good = mag > 0
+        flux[good, i] = 10**(0.4*(8.9-mag[good]))
+        flux_err[good, i] = 0.05*flux[good, i]
+        i += 1
+
+    kfit(responses, cataid, redshift, flux, flux_err, refband, refclr,
+         z0, pdeg, zrange, outfile)
+
+def shark_comp(infile='waves_wide_gals.parquet',
+                kfile='waves_wide_kcorr.fits'):
+    '''Compare SHark absolute magnitues with those predicted from K-correct.'''
+
+    cosmo = FlatLambdaCDM(H0=67.51, Om0=0.3121)
+    t1 = Table.read(infile)
+    t2 = Table.read(kfile)
+    t = join(t1, t2, keys_left='id_galaxy_sky', keys_right='CATAID')
+    sel = t['total_ap_dust_Z_VISTA'] > 0
+    t = t[sel]
+    z_abs_pred = t['total_ap_dust_Z_VISTA'] - cosmo.distmod(t['zobs']).value - t['Kcorr'][:, 4]
+    z_abs = t['total_ab_dust_Z_VISTA']
+    plt.clf()
+    plt.scatter(z_abs, z_abs_pred - z_abs, s=0.1, c=t['zobs'])
+    plt.colorbar(label='Redshift')
+    plt.xlabel('Shark Z_abs')
+    plt.ylabel('Shark Z_app - DM - k')
+    plt.show()
 
 
 def kcorr_gII(infile='TilingCatv46.fits', outfile='gamaII_kcorrz01.fits',
