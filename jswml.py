@@ -180,7 +180,7 @@ def ev_fit_gkv(infile='gkv', outfile='ev_test_GAMAIII.dat',
     par['ev_model'] = ev_model
     par['clean_photom'] = False
     ev_fit(infile, outfile, mlims=(10, 19.65), Pbins=(0.0, 2.5, 5), Qbins=(0.0, 2.0, 5), opt=1,
-           param=param, method=method, kcorr_method=kcorr_method, Mmax=Mmax, idebug=idebug)
+           param=param, method=method, kcorr_method=kcorr_method, idebug=idebug)
 
 
 def ev_fit_devils(infile='D10MasterRedshifts.fits', kcorr_file='kcorr.fits', outfile='ev_devils.dat',
@@ -1434,21 +1434,21 @@ class Cost(object):
         # Jackknife errors on delta
         njack = self.samp.njack
         if self.err_type == 'jack':
-            delta_jack = np.zeros((njack, self.nz))
+            delta_jack = np.zeros((self.nz, njack))
             for jack in range(njack):
                 idx = (self.gala['jack'] != jack)
                 zhist, bin_edges = np.histogram(
                     self.gala['z'][idx], bins=self.samp.zbins, 
                     weights=self.gala['weight'][idx])
                 if P is None:
-                    xx, xx, delta_jack[jack, :], xx, xx, xx = delta_P_solve(
+                    xx, xx, delta_jack[:, jack], xx, xx, xx = delta_P_solve(
                         P, Q, self.gala[idx], self.zbin, zhist, 
                         self.V, self.V_int, self.S_vis[:, idx], self.delta_old)
                 else:
-                    xx, xx, delta_jack[jack, :], xx, xx, xx, xx = delta_solve(
+                    xx, xx, delta_jack[:, jack], xx, xx, xx, xx = delta_solve(
                         P, Q, self.gala[idx], self.zbin, zhist, self.V, self.V_int, 
                         self.S_vis[:, idx])
-            self.delta_err = np.sqrt((njack-1) * np.var(delta_jack*self.samp.jack_area_corr[jack], axis=0))
+            self.delta_err = np.sqrt((njack-1) * np.var(delta_jack*self.samp.jack_area_corr, axis=1))
             del_var = self.delta_err**2
         else: # Use J3-predicted variance den_var
             self.delta_err = self.den_var**0.5
